@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── ORGANIZATION & PEOPLE ───────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  currency  String   @default("KES")
+  timezone  String   @default("Africa/Nairobi")
+  createdAt DateTime @default(now())
+  branches  Branch[]
+  users     User[]
+}
+
+model Branch {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  location       String?
+  status         String   @default("ACTIVE")
+  sellingDays    Int      @default(26)
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff          Staff[]
+  dailySales     DailySale[]
+  @@unique([organizationId, code])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String   @unique
+  name           String
+  role           Role     @default(STOCK_CONTROLLER)
+  branchIds      String[]
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  STOCK_CONTROLLER
+  BRANCH_MANAGER
+  ACCOUNTANT
+}
+
+model Staff {
+  id             String   @id @default(cuid())
+  organizationId String
+  branchId       String
+  firstName      String
+  lastName       String
+  employeeCode   String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  branch         Branch   @relation(fields: [branchId], references: [id])
+  dailySales     DailySale[]
+  @@unique([organizationId, employeeCode])
+}
+
+// ─── DAILY SALES ────────────────────────────────────────────────────────
+
+model DailySale {
+  id          String   @id @default(cuid())
+  branchId    String
+  staffId     String
+  saleDate    DateTime
+  actualSales Decimal  @db.Decimal(18, 2)
+  systemSales Decimal  @db.Decimal(18, 2)
+  variance    Decimal  @db.Decimal(18, 2) @default(0)
+  status      RecordStatus @default(DRAFT)
+  createdAt   DateTime @default(now())
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  staff       Staff    @relation(fields: [staffId], references: [id])
+  @@unique([branchId, staffId, saleDate])
+  @@index([branchId, saleDate])
+}
+
+enum RecordStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
