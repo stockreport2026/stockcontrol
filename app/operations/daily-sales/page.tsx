@@ -1,5 +1,8 @@
-import { redirect } from 'next/navigation';
-
-export default function Home() {
-  redirect('/dashboard');
+export default function DailySalesPage() {
+  return (
+    <div>
+      <h1 className="text-3xl font-bold text-slate-900">Daily Sales</h1>
+      <p className="text-slate-500 mt-1">Coming soon — daily sales entry and management.</p>
+    </div>
+  );
 }
