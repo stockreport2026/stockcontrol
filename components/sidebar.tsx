@@ -10,6 +10,27 @@ const nav = [
     items: [
       { name: 'Daily Sales', href: '/operations/daily-sales' },
       { name: 'Staff Sales', href: '/operations/staff-sales' },
+      { name: 'Branch Sales', href: '/operations/branch-sales' },
+      { name: 'Credit Sales', href: '/operations/credit-sales' },
+      { name: 'Repayments', href: '/operations/repayments' },
+      { name: 'Stock', href: '/operations/stock' },
+      { name: 'Stocktake', href: '/operations/stocktake' },
+      { name: 'Attendance', href: '/operations/attendance' },
+    ],
+  },
+  {
+    section: 'Reconciliation',
+    items: [
+      { name: 'Sales Reconciliation', href: '/reconciliation/sales' },
+      { name: 'Stock Reconciliation', href: '/reconciliation/stock' },
+      { name: 'Recovery & Liability', href: '/reconciliation/recovery' },
+    ],
+  },
+  {
+    section: 'Reports',
+    items: [
+      { name: 'Monthly Reports', href: '/reports/monthly' },
+      { name: 'Report History', href: '/reports/history' },
     ],
   },
   {
@@ -17,6 +38,7 @@ const nav = [
     items: [
       { name: 'Branches', href: '/admin/branches' },
       { name: 'Staff', href: '/admin/staff' },
+      { name: 'Settings', href: '/admin/settings' },
     ],
   },
 ];
