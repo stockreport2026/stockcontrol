@@ -19,7 +19,7 @@ async function getExpectedQuantity(stockItemId: string, branchId: string): Promi
   return txs.reduce((sum, tx) => sum.plus(tx.quantity.toString()), new Decimal(0));
 }
 
-export async function createStocktake(formData: FormData) {
+export async function createStocktake(formData: FormData): Promise<void> {
   const parsed = schema.safeParse({
     branchId: formData.get('branchId'),
     stocktakeDate: formData.get('stocktakeDate'),
@@ -27,15 +27,13 @@ export async function createStocktake(formData: FormData) {
   });
 
   if (!parsed.success) {
-    return { success: false, message: 'Please fill all required fields' };
+    throw new Error('Please fill all required fields');
   }
 
   const { branchId, stocktakeDate, notes } = parsed.data;
 
-  // Get all active stock items
   const items = await prisma.stockItem.findMany({ where: { isActive: true } });
 
-  // Build stocktake items with expected quantities pre-calculated
   const stocktakeItems = await Promise.all(
     items.map(async (item) => {
       const expected = await getExpectedQuantity(item.id, branchId);
