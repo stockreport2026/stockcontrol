@@ -36,6 +36,8 @@ model Branch {
   stockTxs       StockTransaction[]
   stocktakes     Stocktake[]
   attendances    Attendance[]
+  stockVarianceItems StockVarianceItem[]
+  stockVarianceItems StockVarianceItem[]
   stockPositions StockPosition[]
   accountBalances AccountBalance[]
   @@unique([organizationId, code])
@@ -113,34 +115,37 @@ model CreditSale {
 }
 
 model Repayment {
-  id          String   @id @default(cuid())
-  branchId    String
-  staffId     String
-  paymentDate DateTime
-  amount      Decimal  @db.Decimal(18, 2)
-  notes       String?
-  createdAt   DateTime @default(now())
-  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  staff       Staff    @relation(fields: [staffId], references: [id])
+  id           String   @id @default(cuid())
+  branchId     String
+  staffId      String
+  customerName String?
+  paymentDate  DateTime
+  amount       Decimal  @db.Decimal(18, 2)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  staff        Staff    @relation(fields: [staffId], references: [id])
   @@index([branchId, paymentDate])
   @@index([staffId, paymentDate])
+  @@index([customerName])
 }
 
 model Attendance {
-  id           String   @id @default(cuid())
-  staffId      String
-  branchId     String
-  periodYear   Int
-  periodMonth  Int
-  daysWorked   Int      @default(0)
-  leaveDays    Int      @default(0)
-  comment      String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  branch       Branch   @relation(fields: [branchId], references: [id])
-  @@unique([staffId, periodYear, periodMonth])
-  @@index([branchId, periodYear, periodMonth])
+  id              String   @id @default(cuid())
+  staffId         String
+  branchId        String
+  periodStartDate DateTime
+  periodEndDate   DateTime
+  daysWorked      Int      @default(0)
+  leaveDays       Int      @default(0)
+  comment         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  branch          Branch   @relation(fields: [branchId], references: [id])
+  @@unique([staffId, periodStartDate, periodEndDate])
+  @@index([branchId, periodStartDate])
 }
 
 model StockItem {
@@ -241,8 +246,8 @@ model AccountBalance {
 model StockPosition {
   id                String   @id @default(cuid())
   branchId          String
-  periodYear        Int
-  periodMonth       Int
+  periodStartDate   DateTime
+  periodEndDate     DateTime
   openingStockValue Decimal  @db.Decimal(18, 2)
   closingStockValue Decimal  @db.Decimal(18, 2)
   variance          Decimal  @db.Decimal(18, 2)
@@ -250,6 +255,44 @@ model StockPosition {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  @@unique([branchId, periodYear, periodMonth])
-  @@index([periodYear, periodMonth])
+  @@unique([branchId, periodStartDate, periodEndDate])
+  @@index([branchId, periodStartDate])
+}
+
+
+model StockVarianceItem {
+  id              String   @id @default(cuid())
+  branchId        String
+  periodStartDate DateTime
+  periodEndDate   DateTime
+  itemName        String
+  expectedQty     Decimal  @db.Decimal(18, 2)
+  actualQty       Decimal  @db.Decimal(18, 2)
+  varianceQty     Decimal  @db.Decimal(18, 2)
+  unitCost        Decimal  @db.Decimal(18, 2)
+  varianceValue   Decimal  @db.Decimal(18, 2)
+  reason          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@index([branchId, periodStartDate])
+}
+
+
+model StockVarianceItem {
+  id              String   @id @default(cuid())
+  branchId        String
+  periodStartDate DateTime
+  periodEndDate   DateTime
+  itemName        String
+  expectedQty     Decimal  @db.Decimal(18, 2)
+  actualQty       Decimal  @db.Decimal(18, 2)
+  varianceQty     Decimal  @db.Decimal(18, 2)
+  unitCost        Decimal  @db.Decimal(18, 2)
+  varianceValue   Decimal  @db.Decimal(18, 2)
+  reason          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@index([branchId, periodStartDate])
 }

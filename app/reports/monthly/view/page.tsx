@@ -27,10 +27,10 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
     prisma.staffSales.findMany({ where: { branchId, periodYear: y, periodMonth: m }, include: { staff: true } }),
     prisma.creditSale.findMany({ where: { branchId, saleDate: { gte: startDate, lte: endDate } } }),
     prisma.repayment.findMany({ where: { branchId, paymentDate: { gte: startDate, lte: endDate } } }),
-    prisma.attendance.findMany({ where: { branchId, periodYear: y, periodMonth: m }, include: { staff: true } }),
+    prisma.attendance.findMany({ where: { branchId, periodStartDate: { lte: endDate }, periodEndDate: { gte: startDate } }, include: { staff: true } }),
     prisma.staffSales.findMany({ where: { branchId, periodYear: prevYear, periodMonth: prevMonth } }),
-    prisma.stockPosition.findUnique({ where: { branchId_periodYear_periodMonth: { branchId, periodYear: y, periodMonth: m } } }),
-    prisma.stockPosition.findUnique({ where: { branchId_periodYear_periodMonth: { branchId, periodYear: prevYear, periodMonth: prevMonth } } }),
+    prisma.stockPosition.findFirst({ where: { branchId, periodStartDate: { lte: endDate }, periodEndDate: { gte: startDate } }, orderBy: { periodStartDate: 'desc' } }),
+    prisma.stockPosition.findFirst({ where: { branchId, periodStartDate: { lte: new Date(prevYear, prevMonth, 0) }, periodEndDate: { gte: new Date(prevYear, prevMonth - 1, 1) } }, orderBy: { periodStartDate: 'desc' } }),
   ]);
 
   const rawActual = staffSales.reduce((s, x) => s.plus(x.actualSales.toString()), new Decimal(0));

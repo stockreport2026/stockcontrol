@@ -6,8 +6,8 @@ import { prisma } from '@/lib/db/prisma';
 
 const schema = z.object({
   branchId: z.string().min(1),
-  periodYear: z.coerce.number().min(2020).max(2100),
-  periodMonth: z.coerce.number().min(1).max(12),
+  periodStartDate: z.string().min(1),
+  periodEndDate: z.string().min(1),
   openingStockValue: z.string().min(1),
   closingStockValue: z.string().min(1),
   notes: z.string().optional(),
@@ -16,8 +16,8 @@ const schema = z.object({
 export async function saveStockPosition(formData: FormData) {
   const parsed = schema.safeParse({
     branchId: formData.get('branchId'),
-    periodYear: formData.get('periodYear'),
-    periodMonth: formData.get('periodMonth'),
+    periodStartDate: formData.get('periodStartDate'),
+    periodEndDate: formData.get('periodEndDate'),
     openingStockValue: formData.get('openingStockValue'),
     closingStockValue: formData.get('closingStockValue'),
     notes: formData.get('notes'),
@@ -32,21 +32,24 @@ export async function saveStockPosition(formData: FormData) {
   } catch { return { success: false, message: 'Invalid amounts' }; }
   if (opening.isNegative() || closing.isNegative()) return { success: false, message: 'Values cannot be negative' };
 
-  // Variance = opening − closing (positive = loss, negative = surplus)
+  const start = new Date(d.periodStartDate);
+  const end = new Date(d.periodEndDate);
+  if (start > end) return { success: false, message: 'Start date must be before end date' };
+
   const variance = opening.minus(closing);
 
   await prisma.stockPosition.upsert({
     where: {
-      branchId_periodYear_periodMonth: {
+      branchId_periodStartDate_periodEndDate: {
         branchId: d.branchId,
-        periodYear: d.periodYear,
-        periodMonth: d.periodMonth,
+        periodStartDate: start,
+        periodEndDate: end,
       },
     },
     create: {
       branchId: d.branchId,
-      periodYear: d.periodYear,
-      periodMonth: d.periodMonth,
+      periodStartDate: start,
+      periodEndDate: end,
       openingStockValue: opening,
       closingStockValue: closing,
       variance,
@@ -61,7 +64,6 @@ export async function saveStockPosition(formData: FormData) {
   });
 
   revalidatePath('/operations/stocktake');
-  revalidatePath('/reports/monthly');
   return { success: true, message: 'Stock position saved' };
 }
 

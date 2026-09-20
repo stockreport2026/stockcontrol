@@ -30,6 +30,9 @@ export async function generateDemoData(formData: FormData) {
   const branch = await prisma.branch.findUnique({ where: { id: branchId } });
   if (!branch) return { success: false, message: 'Branch not found' };
 
+  const periodStart = new Date(year, month - 1, 1);
+  const periodEnd = new Date(year, month, 0);
+
   const newStaff = [];
   for (let i = 0; i < staffCount; i++) {
     const fn = FIRST[i % FIRST.length];
@@ -50,24 +53,29 @@ export async function generateDemoData(formData: FormData) {
     const actual = system + variance;
     await prisma.staffSales.upsert({
       where: { staffId_periodYear_periodMonth: { staffId: staff.id, periodYear: year, periodMonth: month } },
-      create: { branchId: branch.id, staffId: staff.id, periodYear: year, periodMonth: month, periodStartDate: new Date(year, month - 1, 1), periodEndDate: new Date(year, month, 0), actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
+      create: { branchId: branch.id, staffId: staff.id, periodYear: year, periodMonth: month, periodStartDate: periodStart, periodEndDate: periodEnd, actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
       update: { actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
     });
   }
 
   // Attendance
   for (const staff of newStaff) {
-    await prisma.attendance.upsert({
-      where: { staffId_periodYear_periodMonth: { staffId: staff.id, periodYear: year, periodMonth: month } },
-      create: { staffId: staff.id, branchId: branch.id, periodYear: year, periodMonth: month, daysWorked: 26, leaveDays: 0 },
-      update: { daysWorked: 26 },
+    const existing = await prisma.attendance.findFirst({
+      where: { staffId: staff.id, periodStartDate: periodStart, periodEndDate: periodEnd },
     });
+    if (existing) {
+      await prisma.attendance.update({ where: { id: existing.id }, data: { daysWorked: 26 } });
+    } else {
+      await prisma.attendance.create({
+        data: { staffId: staff.id, branchId: branch.id, periodStartDate: periodStart, periodEndDate: periodEnd, daysWorked: 26, leaveDays: 0 },
+      });
+    }
   }
 
   // Account balance
   await prisma.accountBalance.upsert({
     where: { branchId_periodYear_periodMonth: { branchId: branch.id, periodYear: year, periodMonth: month } },
-    create: { branchId: branch.id, periodYear: year, periodMonth: month, periodStartDate: new Date(year, month - 1, 1), periodEndDate: new Date(year, month, 0), openingBalance: new Decimal(75000), closingBalance: new Decimal(0) },
+    create: { branchId: branch.id, periodYear: year, periodMonth: month, periodStartDate: periodStart, periodEndDate: periodEnd, openingBalance: new Decimal(75000), closingBalance: new Decimal(0) },
     update: {},
   });
 

@@ -5,9 +5,10 @@ import { saveStockPosition } from './actions';
 export function StockPositionForm({ branches }: { branches: any[] }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
   const now = new Date();
-  const defaultYear = now.getFullYear();
-  const defaultMonth = now.getMonth() === 0 ? 12 : now.getMonth();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
 
   const [opening, setOpening] = useState('');
   const [closing, setClosing] = useState('');
@@ -29,64 +30,42 @@ export function StockPositionForm({ branches }: { branches: any[] }) {
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
-      <h2 className="text-lg font-semibold text-slate-900 mb-2">Enter Stock Position</h2>
+      <h2 className="text-lg font-semibold text-slate-900 mb-2">Enter Stock Position for Period</h2>
       <p className="text-xs text-slate-500 mb-5">
-        Enter the total opening stock value and closing stock value (in KES). The variance is automatically calculated.
+        Enter opening and closing stock values (KES) for a specific period. The date range can be any length — weekly, monthly, quarterly.
       </p>
 
       <form id="stock-form" action={onSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-medium text-slate-700 mb-1">Branch</label>
             <select name="branchId" value={branchId} onChange={(e) => setBranchId(e.target.value)} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
               {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Year</label>
-            <input type="number" name="periodYear" defaultValue={defaultYear} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
+            <label className="block text-xs font-medium text-slate-700 mb-1">Period Start</label>
+            <input type="date" name="periodStartDate" defaultValue={firstOfMonth} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Month</label>
-            <select name="periodMonth" defaultValue={defaultMonth} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'long' })}</option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Period End</label>
+            <input type="date" name="periodEndDate" defaultValue={lastOfMonth} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
           </div>
-          <div />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Opening Stock Value (KES)</label>
-            <input
-              type="number"
-              step="0.01"
-              name="openingStockValue"
-              value={opening}
-              onChange={(e) => setOpening(e.target.value)}
-              required
-              placeholder="0.00"
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
-            />
+            <input type="number" step="0.01" name="openingStockValue" value={opening} onChange={(e) => setOpening(e.target.value)} required placeholder="0.00"
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Closing Stock Value (KES)</label>
-            <input
-              type="number"
-              step="0.01"
-              name="closingStockValue"
-              value={closing}
-              onChange={(e) => setClosing(e.target.value)}
-              required
-              placeholder="0.00"
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
-            />
+            <input type="number" step="0.01" name="closingStockValue" value={closing} onChange={(e) => setClosing(e.target.value)} required placeholder="0.00"
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
           </div>
         </div>
 
-        {/* Live variance preview */}
         {(opening !== '' || closing !== '') && (
           <div className={`p-4 rounded-lg border-l-4 ${variance > 0 ? 'bg-rose-50 border-rose-500' : variance < 0 ? 'bg-emerald-50 border-emerald-500' : 'bg-slate-50 border-slate-400'}`}>
             <div className="grid grid-cols-3 gap-4">

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import Decimal from 'decimal.js';
 import { RepaymentForm } from './form';
+import { DeleteRepaymentButton } from './delete-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +12,7 @@ export default async function RepaymentsPage() {
     prisma.repayment.findMany({
       include: { staff: true, branch: true },
       orderBy: { paymentDate: 'desc' },
-      take: 50,
+      take: 100,
     }),
   ]);
 
@@ -21,7 +22,7 @@ export default async function RepaymentsPage() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Repayments</h1>
-        <p className="text-slate-500 mt-1">Customer repayments received — reduces actual sales for the staff and branch</p>
+        <p className="text-slate-500 mt-1">Customer repayments — reduces credit balances and adjusted actual sales</p>
       </div>
 
       <div className="grid grid-cols-3 gap-5 mb-6">
@@ -35,7 +36,7 @@ export default async function RepaymentsPage() {
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500 font-medium">Effect on Report</p>
-          <p className="text-sm text-slate-600 mt-2">Subtracted from actual sales</p>
+          <p className="text-sm text-slate-600 mt-2">Reduces credit sales balance & actual sales</p>
         </div>
       </div>
 
@@ -52,10 +53,12 @@ export default async function RepaymentsPage() {
             <thead className="bg-slate-50">
               <tr>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Date</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Staff (Individual)</th>
+                <th className="text-left px-6 py-3 font-medium text-slate-600">Staff</th>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Branch</th>
+                <th className="text-left px-6 py-3 font-medium text-slate-600">Customer</th>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Notes</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Amount (KES)</th>
+                <th className="text-right px-6 py-3 font-medium text-slate-600">Amount</th>
+                <th className="text-right px-6 py-3 font-medium text-slate-600">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -64,8 +67,10 @@ export default async function RepaymentsPage() {
                   <td className="px-6 py-3 text-slate-700">{new Date(r.paymentDate).toLocaleDateString('en-GB')}</td>
                   <td className="px-6 py-3 font-medium text-slate-900">{r.staff.firstName} {r.staff.lastName}</td>
                   <td className="px-6 py-3 text-slate-600">{r.branch.name}</td>
+                  <td className="px-6 py-3 text-slate-700">{r.customerName ?? '—'}</td>
                   <td className="px-6 py-3 text-slate-500 text-xs">{r.notes ?? '—'}</td>
                   <td className="px-6 py-3 text-right font-medium text-emerald-600">{Number(r.amount).toLocaleString()}</td>
+                  <td className="px-6 py-3 text-right"><DeleteRepaymentButton id={r.id} /></td>
                 </tr>
               ))}
             </tbody>

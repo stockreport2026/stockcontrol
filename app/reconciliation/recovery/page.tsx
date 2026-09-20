@@ -14,7 +14,13 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
     prisma.staffSales.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
     prisma.creditSale.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
     prisma.repayment.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
-    prisma.stockPosition.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
+    prisma.stockPosition.findMany({
+      where: {
+        ...(branchId ? { branchId } : {}),
+        periodStartDate: { lte: new Date(year, month, 0, 23, 59, 59) },
+        periodEndDate: { gte: new Date(year, month - 1, 1) },
+      },
+    }),
     prisma.accountBalance.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
   ]);
 
