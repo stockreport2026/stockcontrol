@@ -324,7 +324,7 @@ export function ReportClient({ report }: { report: any }) {
                     <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12, fontWeight: 500 }} iconType="circle" />
                     <Bar dataKey="system" fill={C.slateLight} name="System Sales" radius={[5, 5, 0, 0]} />
                     <Bar dataKey="actual" fill={C.navy} name="Actual Sales" radius={[5, 5, 0, 0]}>
-                      <LabelList dataKey="actual" position="top" formatter={shortFmt} style={{ fontSize: 10, fill: '#0f172a', fontWeight: 600 }} />
+                      <LabelList dataKey="actual" position="top" formatter={(v: any) => shortFmt(Number(v) || 0)} style={{ fontSize: 10, fill: "#0f172a", fontWeight: 600 }} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
