@@ -3,11 +3,7 @@ import Decimal from 'decimal.js';
 
 export const dynamic = 'force-dynamic';
 
-export default async function StockReconciliationPage({
-  searchParams,
-}: {
-  searchParams: { year?: string; month?: string; branchId?: string };
-}) {
+export default async function StockReconciliationPage({ searchParams }: { searchParams: { year?: string; month?: string; branchId?: string } }) {
   const year = parseInt(searchParams.year ?? '2026');
   const month = parseInt(searchParams.month ?? '8');
   const branchId = searchParams.branchId;
@@ -15,69 +11,24 @@ export default async function StockReconciliationPage({
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0, 23, 59, 59);
 
-  const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
+  const [branches, items] = await Promise.all([
+    prisma.branch.findMany({ orderBy: { name: 'asc' } }),
+    prisma.stockVarianceItem.findMany({
+      where: { periodStartDate: { lte: endDate }, periodEndDate: { gte: startDate }, ...(branchId ? { branchId } : {}) },
+      include: { branch: true },
+    }),
+  ]);
 
-  const stocktakes = await prisma.stocktake.findMany({
-    where: {
-      stocktakeDate: { gte: startDate, lte: endDate },
-      status: 'APPROVED',
-      ...(branchId ? { branchId } : {}),
-    },
-    include: { branch: true, items: { include: { stockItem: true } } },
-  });
-
-  // Group by branch
-  const byBranch = new Map<string, {
-    name: string;
-    expected: Decimal;
-    actual: Decimal;
-    loss: Decimal;
-    surplus: Decimal;
-    items: any[];
-  }>();
-
-  for (const st of stocktakes) {
-    const cur = byBranch.get(st.branchId) ?? {
-      name: st.branch.name,
-      expected: new Decimal(0),
-      actual: new Decimal(0),
-      loss: new Decimal(0),
-      surplus: new Decimal(0),
-      items: [],
-    };
-    for (const item of st.items) {
-      const exp = new Decimal(item.expectedQty.toString()).times(item.unitCost.toString());
-      const act = new Decimal(item.actualQty.toString()).times(item.unitCost.toString());
-      cur.expected = cur.expected.plus(exp);
-      cur.actual = cur.actual.plus(act);
-      const vv = new Decimal(item.varianceValue.toString());
-      if (vv.isPositive()) cur.loss = cur.loss.plus(vv);
-      else if (vv.isNegative()) cur.surplus = cur.surplus.plus(vv.abs());
-      cur.items.push({
-        description: item.stockItem.description,
-        expected: Number(item.expectedQty),
-        actual: Number(item.actualQty),
-        variance: Number(item.varianceQty),
-        unit: item.stockItem.unit,
-        unitCost: Number(item.unitCost),
-        value: Number(item.varianceValue),
-      });
-    }
-    byBranch.set(st.branchId, cur);
-  }
-
-  const totals = {
-    expected: new Decimal(0),
-    actual: new Decimal(0),
-    loss: new Decimal(0),
-    surplus: new Decimal(0),
-  };
-  for (const b of byBranch.values()) {
-    totals.expected = totals.expected.plus(b.expected);
-    totals.actual = totals.actual.plus(b.actual);
-    totals.loss = totals.loss.plus(b.loss);
-    totals.surplus = totals.surplus.plus(b.surplus);
-  }
+  const totalOpening = items.reduce((s, i) => s.plus(new Decimal(i.expectedQty.toString()).times(i.unitCost.toString())), new Decimal(0));
+  const totalClosing = items.reduce((s, i) => s.plus(new Decimal(i.actualQty.toString()).times(i.unitCost.toString())), new Decimal(0));
+  const totalLoss = items.reduce((s, i) => {
+    const v = new Decimal(i.varianceValue.toString());
+    return v.isPositive() ? s.plus(v) : s;
+  }, new Decimal(0));
+  const totalSurplus = items.reduce((s, i) => {
+    const v = new Decimal(i.varianceValue.toString());
+    return v.isNegative() ? s.plus(v.abs()) : s;
+  }, new Decimal(0));
 
   const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
@@ -85,7 +36,7 @@ export default async function StockReconciliationPage({
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Stock Reconciliation</h1>
-        <p className="text-slate-500 mt-1">Physical stocktake variances — {monthName}</p>
+        <p className="text-slate-500 mt-1">Itemized stock variances — {monthName}</p>
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 p-4 mb-6">
@@ -117,61 +68,68 @@ export default async function StockReconciliationPage({
 
       <div className="grid grid-cols-4 gap-5 mb-6">
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Expected Value</p>
-          <p className="text-xl font-bold mt-1 text-slate-900">KES {Number(totals.expected.toFixed(2)).toLocaleString()}</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">System Value</p>
+          <p className="text-2xl font-bold mt-1 text-slate-900">KES {Number(totalOpening.toFixed(2)).toLocaleString()}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Actual Value</p>
-          <p className="text-xl font-bold mt-1 text-slate-900">KES {Number(totals.actual.toFixed(2)).toLocaleString()}</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Actual Value</p>
+          <p className="text-2xl font-bold mt-1 text-slate-900">KES {Number(totalClosing.toFixed(2)).toLocaleString()}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Stock Loss</p>
-          <p className="text-xl font-bold mt-1 text-red-600">KES {Number(totals.loss.toFixed(2)).toLocaleString()}</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Stock Loss</p>
+          <p className="text-2xl font-bold mt-1 text-rose-600">KES {Number(totalLoss.toFixed(2)).toLocaleString()}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Stock Surplus</p>
-          <p className="text-xl font-bold mt-1 text-green-600">KES {Number(totals.surplus.toFixed(2)).toLocaleString()}</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Stock Surplus</p>
+          <p className="text-2xl font-bold mt-1 text-emerald-600">KES {Number(totalSurplus.toFixed(2)).toLocaleString()}</p>
         </div>
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Branch Stock Analysis ({byBranch.size})</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Variance Items ({items.length})</h2>
         </div>
-        {byBranch.size === 0 ? (
-          <div className="p-12 text-center text-slate-500">No approved stocktakes for this period.</div>
+        {items.length === 0 ? (
+          <div className="p-12 text-center text-slate-500">No stock variance items for this period.</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Branch</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Items</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Expected Value</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Actual Value</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Stock Loss</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Shrink %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from(byBranch.entries()).map(([bid, b]) => {
-                const shrink = b.expected.isZero() ? new Decimal(0) : b.loss.dividedBy(b.expected).times(100);
-                return (
-                  <tr key={bid} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-6 py-3 font-medium text-slate-900">{b.name}</td>
-                    <td className="px-6 py-3 text-right text-slate-600">{b.items.length}</td>
-                    <td className="px-6 py-3 text-right text-slate-700">{Number(b.expected.toFixed(2)).toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right text-slate-700">{Number(b.actual.toFixed(2)).toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right text-red-600 font-medium">{Number(b.loss.toFixed(2)).toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right">
-                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${Number(shrink) > 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {shrink.toFixed(2)}%
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Branch</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Item</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">System</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Actual</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Variance</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Unit Cost</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Value</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((i) => {
+                  const vv = Number(i.varianceValue);
+                  const isLoss = vv > 0;
+                  return (
+                    <tr key={i.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-700 text-xs">{i.branch.name}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{i.itemName}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{Number(i.expectedQty).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{Number(i.actualQty).toLocaleString()}</td>
+                      <td className={`px-4 py-3 text-right font-medium ${isLoss ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {isLoss ? '−' : '+'}{Math.abs(Number(i.varianceQty)).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">{Number(i.unitCost).toLocaleString()}</td>
+                      <td className={`px-4 py-3 text-right font-semibold ${isLoss ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {isLoss ? '−' : '+'}{Math.abs(vv).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 text-xs max-w-xs truncate" title={i.reason ?? ''}>{i.reason ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

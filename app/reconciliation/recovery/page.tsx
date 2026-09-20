@@ -8,17 +8,20 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
   const month = parseInt(searchParams.month ?? '8');
   const branchId = searchParams.branchId;
 
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0, 23, 59, 59);
+
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
 
-  const [sales, creditSales, repayments, stockPositions, accounts] = await Promise.all([
+  const [sales, creditSales, repayments, varianceItems, accounts] = await Promise.all([
     prisma.staffSales.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
     prisma.creditSale.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
     prisma.repayment.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
-    prisma.stockPosition.findMany({
+    prisma.stockVarianceItem.findMany({
       where: {
         ...(branchId ? { branchId } : {}),
-        periodStartDate: { lte: new Date(year, month, 0, 23, 59, 59) },
-        periodEndDate: { gte: new Date(year, month - 1, 1) },
+        periodStartDate: { lte: endDate },
+        periodEndDate: { gte: startDate },
       },
     }),
     prisma.accountBalance.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
@@ -26,7 +29,7 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
 
   const branchIds = new Set<string>();
   sales.forEach((s) => branchIds.add(s.branchId));
-  stockPositions.forEach((s) => branchIds.add(s.branchId));
+  varianceItems.forEach((s) => branchIds.add(s.branchId));
   accounts.forEach((a) => branchIds.add(a.branchId));
 
   const rows: any[] = [];
@@ -39,6 +42,7 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
     const branchSales = sales.filter((s) => s.branchId === bid);
     const branchCredit = creditSales.filter((c) => c.branchId === bid);
     const branchRepay = repayments.filter((r) => r.branchId === bid);
+    const branchItems = varianceItems.filter((v) => v.branchId === bid);
 
     const excessSales = branchSales.reduce((sum, s) => {
       const staffCredit = branchCredit.filter((c) => c.staffId === s.staffId).reduce((a, c) => a.plus(c.amount.toString()), new Decimal(0));
@@ -49,13 +53,10 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
       return variance.isPositive() ? sum.plus(variance) : sum;
     }, new Decimal(0));
 
-    const pos = stockPositions.find((s) => s.branchId === bid);
     let stockLoss = new Decimal(0);
-    if (pos) {
-      const op = new Decimal(pos.openingStockValue.toString());
-      const cl = new Decimal(pos.closingStockValue.toString());
-      const v = op.minus(cl);
-      if (v.isPositive()) stockLoss = v;
+    for (const item of branchItems) {
+      const v = new Decimal(item.varianceValue.toString());
+      if (v.isPositive()) stockLoss = stockLoss.plus(v);
     }
 
     const recovery = Decimal.min(excessSales, stockLoss);
@@ -72,9 +73,12 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
       recoveryRate: Number(recoveryRate.toFixed(2)), opening: Number(opening.toFixed(2)), closing: Number(closing.toFixed(2)),
     });
 
-    totals.excess = totals.excess.plus(excessSales); totals.loss = totals.loss.plus(stockLoss);
-    totals.recovery = totals.recovery.plus(recovery); totals.remaining = totals.remaining.plus(remaining);
-    totals.opening = totals.opening.plus(opening); totals.closing = totals.closing.plus(closing);
+    totals.excess = totals.excess.plus(excessSales);
+    totals.loss = totals.loss.plus(stockLoss);
+    totals.recovery = totals.recovery.plus(recovery);
+    totals.remaining = totals.remaining.plus(remaining);
+    totals.opening = totals.opening.plus(opening);
+    totals.closing = totals.closing.plus(closing);
   }
 
   const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
