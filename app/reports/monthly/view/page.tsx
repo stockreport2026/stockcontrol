@@ -25,8 +25,8 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
 
   const [staffSales, creditSales, repayments, attendance, prevSales, varianceItems, prevVarianceItems] = await Promise.all([
     prisma.staffSales.findMany({ where: { branchId, periodYear: y, periodMonth: m }, include: { staff: true } }),
-    prisma.creditSale.findMany({ where: { branchId, saleDate: { gte: startDate, lte: endDate } } }),
-    prisma.repayment.findMany({ where: { branchId, paymentDate: { gte: startDate, lte: endDate } } }),
+    prisma.creditSale.findMany({ where: { branchId, saleDate: { gte: startDate, lte: endDate } }, include: { staff: true } }),
+    prisma.repayment.findMany({ where: { branchId, paymentDate: { gte: startDate, lte: endDate } }, include: { staff: true } }),
     prisma.attendance.findMany({ where: { branchId, periodStartDate: { lte: endDate }, periodEndDate: { gte: startDate } }, include: { staff: true } }),
     prisma.staffSales.findMany({ where: { branchId, periodYear: prevYear, periodMonth: prevMonth } }),
     prisma.stockVarianceItem.findMany({ where: { branchId, periodStartDate: { lte: endDate }, periodEndDate: { gte: startDate } } }),
@@ -43,6 +43,7 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
   const totalVariance = adjustedActual.minus(adjustedSystem);
   const variancePct = adjustedSystem.isZero() ? new Decimal(0) : totalVariance.dividedBy(adjustedSystem).times(100);
 
+  // Per-staff analysis
   const staffMap = new Map<string, { name: string; rawActual: Decimal; rawSystem: Decimal; credit: Decimal; repay: Decimal }>();
   for (const s of staffSales) {
     const name = `${s.staff.firstName} ${s.staff.lastName}`;
@@ -62,13 +63,15 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
       credit: Number(s.credit.toFixed(2)), repay: Number(s.repay.toFixed(2)),
       actual: Number(adjActual.toFixed(2)), system: Number(adjSystem.toFixed(2)),
       variance: Number(variance.toFixed(2)), variancePct: Number(varPct.toFixed(2)),
-      days: 0, avgDaily: 0,
     };
   }).sort((a, b) => b.variance - a.variance);
 
   const excessSales = staffSummary.reduce((s, st) => st.variance > 0 ? s.plus(st.variance) : s, new Decimal(0));
   const shortSales = staffSummary.reduce((s, st) => st.variance < 0 ? s.plus(Math.abs(st.variance)) : s, new Decimal(0));
+  const positiveDays = staffSummary.filter((s) => s.variance > 0).length;
+  const negativeDays = staffSummary.filter((s) => s.variance < 0).length;
 
+  // Stock variance items
   let openingStockValue = new Decimal(0);
   let closingStockValue = new Decimal(0);
   let stockLoss = new Decimal(0);
@@ -90,6 +93,7 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
       varianceValue: Number(vv.toFixed(2)), reason: i.reason ?? null,
     });
   }
+  stockLossItems.sort((a, b) => b.varianceValue - a.varianceValue);
   const shrinkageRate = openingStockValue.isZero() ? new Decimal(0) : stockLoss.dividedBy(openingStockValue).times(100);
 
   const recoveryApplied = Decimal.min(Decimal.max(excessSales, 0), Decimal.max(stockLoss, 0));
@@ -98,14 +102,22 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
   const recoveryRate = stockLoss.isZero() ? new Decimal(0) : Decimal.min(recoveryApplied.dividedBy(stockLoss).times(100), 100);
   const calculatedClosingDebt = openingDebt.plus(remainingLoss);
 
+  // Attendance
   const attendanceRows = attendance.map((a) => {
     const total = a.daysWorked + a.leaveDays;
-    return { name: `${a.staff.firstName} ${a.staff.lastName}`, present: a.daysWorked, leave: a.leaveDays, total, rate: total === 0 ? 0 : (a.daysWorked / total) * 100 };
+    return {
+      name: `${a.staff.firstName} ${a.staff.lastName}`,
+      present: a.daysWorked,
+      leave: a.leaveDays,
+      total,
+      rate: total === 0 ? 0 : (a.daysWorked / total) * 100,
+    };
   });
   const totalPresent = attendanceRows.reduce((s, r) => s + r.present, 0);
   const totalScheduled = attendanceRows.reduce((s, r) => s + r.total, 0);
   const overallAttendance = totalScheduled === 0 ? 0 : (totalPresent / totalScheduled) * 100;
 
+  // Previous period
   let prevStockLoss = new Decimal(0);
   for (const i of prevVarianceItems) {
     const vv = new Decimal(i.varianceValue.toString());
@@ -134,22 +146,47 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
       credit: Number(totalCredit.toFixed(2)), repayments: Number(totalRepayments.toFixed(2)),
       variance: Number(totalVariance.toFixed(2)), variancePct: Number(variancePct.toFixed(2)),
       excessSales: Number(excessSales.toFixed(2)), shortSales: Number(shortSales.toFixed(2)),
-      sellingDays: staffCount, avgDaily: avgStaff, avgStaff, staffCount,
+      avgStaff, staffCount, positiveDays, negativeDays,
+    },
+    credit: {
+      totalCredit: Number(totalCredit.toFixed(2)),
+      totalRepayments: Number(totalRepayments.toFixed(2)),
+      outstanding: Number(totalCredit.minus(totalRepayments).toFixed(2)),
+      repaymentRate: totalCredit.isZero() ? 0 : Number(totalRepayments.dividedBy(totalCredit).times(100).toFixed(2)),
+      records: creditSales.length,
     },
     stock: {
-      openingValue: Number(openingStockValue.toFixed(2)), closingValue: Number(closingStockValue.toFixed(2)),
-      stockLoss: Number(stockLoss.toFixed(2)), stockSurplus: Number(stockSurplus.toFixed(2)),
-      shrinkageRate: Number(shrinkageRate.toFixed(2)), items: stockLossItems,
+      openingValue: Number(openingStockValue.toFixed(2)),
+      closingValue: Number(closingStockValue.toFixed(2)),
+      stockLoss: Number(stockLoss.toFixed(2)),
+      stockSurplus: Number(stockSurplus.toFixed(2)),
+      shrinkageRate: Number(shrinkageRate.toFixed(2)),
+      items: stockLossItems,
+      itemCount: stockLossItems.length,
     },
-    account: { openingBalance: Number(openingDebt.toFixed(2)), unrecoveredLoss: Number(remainingLoss.toFixed(2)), calculatedClosing: Number(calculatedClosingDebt.toFixed(2)) },
-    recovery: { stockLoss: Number(stockLoss.toFixed(2)), excessSales: Number(excessSales.toFixed(2)), recoveryApplied: Number(recoveryApplied.toFixed(2)), remainingLoss: Number(remainingLoss.toFixed(2)), surplus: Number(surplus.toFixed(2)), recoveryRate: Number(recoveryRate.toFixed(2)) },
+    account: {
+      openingBalance: Number(openingDebt.toFixed(2)),
+      unrecoveredLoss: Number(remainingLoss.toFixed(2)),
+      calculatedClosing: Number(calculatedClosingDebt.toFixed(2)),
+    },
+    recovery: {
+      stockLoss: Number(stockLoss.toFixed(2)), excessSales: Number(excessSales.toFixed(2)),
+      recoveryApplied: Number(recoveryApplied.toFixed(2)), remainingLoss: Number(remainingLoss.toFixed(2)),
+      surplus: Number(surplus.toFixed(2)), recoveryRate: Number(recoveryRate.toFixed(2)),
+    },
     attendance: { rows: attendanceRows, overall: Number(overallAttendance.toFixed(2)) },
     comparison: {
       prevPeriod: prevMonthName, prevActual: Number(prevActual.toFixed(2)), prevSystem: Number(prevSystem.toFixed(2)),
       prevVariance: Number(prevActual.minus(prevSystem).toFixed(2)), prevStockLoss: Number(prevStockLoss.toFixed(2)),
       prevRecovery: Number(prevRecovery.toFixed(2)), prevRemaining: Number(prevRemaining.toFixed(2)),
     },
-    charts: { dailyTrend: [], staffSummary, topPerformer: staffSummary[0], bottomPerformer: staffSummary[staffSummary.length - 1], creditTrend: [] },
+    charts: {
+      staffSummary,
+      topPerformer: staffSummary[0] ?? null,
+      bottomPerformer: staffSummary[staffSummary.length - 1] ?? null,
+      varianceBars: staffSummary.map((s) => ({ name: s.name.split(' ')[0], variance: s.variance })),
+      salesBars: staffSummary.map((s) => ({ name: s.name.split(' ')[0], actual: s.actual, system: s.system })),
+    },
   };
 
   return <ReportClient report={report} />;
