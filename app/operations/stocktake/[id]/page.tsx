@@ -2,7 +2,6 @@ import { prisma } from '@/lib/db/prisma';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { StocktakeForm } from './stocktake-form';
-import Decimal from 'decimal.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,16 +35,18 @@ export default async function StocktakeDetailPage({
   }));
 
   const totalExpectedValue = items.reduce(
-    (sum, i) => sum.plus(new Decimal(i.expectedQty).times(i.unitCost)),
-    new Decimal(0)
+    (sum, i) => sum + parseFloat(i.expectedQty) * parseFloat(i.unitCost),
+    0
   );
   const totalActualValue = items.reduce(
-    (sum, i) => sum.plus(new Decimal(i.actualQty).times(i.unitCost)),
-    new Decimal(0)
+    (sum, i) => sum + parseFloat(i.actualQty) * parseFloat(i.unitCost),
+    0
   );
-  const totalVariance = totalExpectedValue.minus(totalActualValue);
+  const stockLoss = totalExpectedValue - totalActualValue;
 
   const isApproved = stocktake.status === 'APPROVED';
+  const isLoss = stockLoss > 0.001;
+  const isSurplus = stockLoss < -0.001;
 
   return (
     <div>
@@ -71,22 +72,25 @@ export default async function StocktakeDetailPage({
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500 font-medium">Expected Value</p>
           <p className="text-2xl font-bold mt-1 text-slate-900">
-            KES {Number(totalExpectedValue.toFixed(2)).toLocaleString()}
+            KES {totalExpectedValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
           </p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500 font-medium">Actual Value</p>
           <p className="text-2xl font-bold mt-1 text-slate-900">
-            KES {Number(totalActualValue.toFixed(2)).toLocaleString()}
+            KES {totalActualValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
           </p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Stock Variance</p>
+          <p className="text-sm text-slate-500 font-medium">
+            {isLoss ? 'Stock Loss' : isSurplus ? 'Stock Surplus' : 'No Variance'}
+          </p>
           <p className={`text-2xl font-bold mt-1 ${
-            totalVariance.isNegative() ? 'text-red-600' : totalVariance.isZero() ? 'text-slate-500' : 'text-green-600'
+            isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-900'
           }`}>
-            {totalVariance.isNegative() ? '' : '+'}
-            KES {Number(totalVariance.toFixed(2)).toLocaleString()}
+            {isSurplus ? '(' : ''}
+            KES {Math.abs(stockLoss).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            {isSurplus ? ')' : ''}
           </p>
         </div>
       </div>

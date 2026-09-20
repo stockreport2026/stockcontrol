@@ -44,6 +44,19 @@ export function StocktakeForm({
     });
   };
 
+  // Compute totals
+  const totals = items.reduce(
+    (acc, i) => {
+      const expected = parseFloat(i.expectedQty) * parseFloat(i.unitCost);
+      const actual = parseFloat(i.actualQty) * parseFloat(i.unitCost);
+      acc.expected += expected;
+      acc.actual += actual;
+      acc.variance += expected - actual;
+      return acc;
+    },
+    { expected: 0, actual: 0, variance: 0 }
+  );
+
   return (
     <form action={handleSave}>
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
@@ -65,14 +78,16 @@ export function StocktakeForm({
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Item</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Expected</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Actual Count</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Variance</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Loss / (Surplus) Qty</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Unit Cost</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Variance Value</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Loss / (Surplus) Value</th>
               </tr>
             </thead>
             <tbody>
               {items.map((i) => {
-                const v = parseFloat(i.varianceValue);
+                const varianceValue = parseFloat(i.varianceValue);
+                const isLoss = varianceValue > 0.001;
+                const isSurplus = varianceValue < -0.001;
                 return (
                   <tr key={i.id} className="border-t border-slate-100">
                     <td className="px-4 py-3">
@@ -94,21 +109,46 @@ export function StocktakeForm({
                         className="w-32 border border-slate-300 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-slate-900 disabled:bg-slate-100"
                       />
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-600">
+                    <td className={`px-4 py-3 text-right font-medium ${
+                      isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-500'
+                    }`}>
+                      {isLoss ? '' : isSurplus ? '(' : ''}
                       {Number(i.varianceQty).toLocaleString()}
+                      {isSurplus ? ')' : ''}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-600">
                       {Number(i.unitCost).toLocaleString()}
                     </td>
                     <td className={`px-4 py-3 text-right font-medium ${
-                      v < 0 ? 'text-red-600' : v > 0 ? 'text-green-600' : 'text-slate-500'
+                      isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-500'
                     }`}>
-                      {v > 0 ? '+' : ''}{Number(i.varianceValue).toLocaleString()}
+                      {isLoss ? '' : isSurplus ? '(' : ''}
+                      {Number(Math.abs(varianceValue)).toLocaleString()}
+                      {isSurplus ? ')' : ''}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
+            <tfoot className="bg-slate-100 font-medium">
+              <tr>
+                <td className="px-4 py-3 text-slate-900">TOTALS</td>
+                <td className="px-4 py-3 text-right text-slate-900">
+                  {totals.expected.toLocaleString()}
+                </td>
+                <td className="px-4 py-3 text-right text-slate-900">
+                  {totals.actual.toLocaleString()}
+                </td>
+                <td colSpan={2}></td>
+                <td className={`px-4 py-3 text-right ${
+                  totals.variance > 0 ? 'text-red-600' : totals.variance < 0 ? 'text-green-600' : 'text-slate-500'
+                }`}>
+                  {totals.variance > 0 ? '' : totals.variance < 0 ? '(' : ''}
+                  {Math.abs(totals.variance).toLocaleString()}
+                  {totals.variance < 0 ? ')' : ''}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
