@@ -181,7 +181,7 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
     account: { openingBalance: Number(openingDebt.toFixed(2)), unrecoveredLoss: Number(remainingLoss.toFixed(2)), calculatedClosing: Number(calculatedClosingDebt.toFixed(2)) },
     recovery: { stockLoss: Number(stockLoss.toFixed(2)), excessSales: Number(excessSales.toFixed(2)), recoveryApplied: Number(recoveryApplied.toFixed(2)), remainingLoss: Number(remainingLoss.toFixed(2)), surplus: Number(surplus.toFixed(2)), recoveryRate: Number(recoveryRate.toFixed(2)) },
     attendance: { rows: attendanceRows, overall: Number(overallAttendance.toFixed(2)) },
-    comparison: { prevPeriod: prevMonthName, prevActual: Number(prevActual.toFixed(2)), prevSystem: Number(prevSystem.toFixed(2)), prevVariance: Number(prevActual.minus(prevSystem).toFixed(2)), prevStockLoss: Number(prevStockLoss.toFixed(2)), prevRecovery: Number(Decimal.min(prevActual.minus(prevSystem).max(0), prevStockLoss).toFixed(2)), prevRemaining: Number(Decimal.max(prevStockLoss.minus(Decimal.min(prevActual.minus(prevSystem).max(0), prevStockLoss)), 0).toFixed(2)) },
+    comparison: { prevPeriod: prevMonthName, prevActual: Number(prevActual.toFixed(2)), prevSystem: Number(prevSystem.toFixed(2)), prevVariance: Number(prevActual.minus(prevSystem).toFixed(2)), prevStockLoss: Number(prevStockLoss.toFixed(2)), prevRecovery: Number(Decimal.min(Decimal.max(prevActual.minus(prevSystem), 0), prevStockLoss).toFixed(2)), prevRemaining: Number(Decimal.max(prevStockLoss.minus(Decimal.min(Decimal.max(prevActual.minus(prevSystem), 0), prevStockLoss)), 0).toFixed(2)) },
     charts: { dailyTrend, staffSummary, topPerformer: staffSummary[0], bottomPerformer: staffSummary[staffSummary.length - 1], creditTrend: [] },
   };
 
