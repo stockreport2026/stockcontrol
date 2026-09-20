@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export default async function BranchesPage() {
   const branches = await prisma.branch.findMany({
     orderBy: { name: 'asc' },
-    include: { _count: { select: { staff: true, dailySales: true, stocktakes: true } } },
+    include: { _count: { select: { staff: true, staffSales: true, stocktakes: true } } },
   });
 
   return (
@@ -40,7 +40,7 @@ export default async function BranchesPage() {
                 <td className="px-6 py-3 text-slate-600 font-mono text-xs">{b.code}</td>
                 <td className="px-6 py-3 text-slate-500">{b.location ?? '—'}</td>
                 <td className="px-6 py-3 text-right text-slate-700">{b._count.staff}</td>
-                <td className="px-6 py-3 text-right text-slate-700">{b._count.dailySales}</td>
+                <td className="px-6 py-3 text-right text-slate-700">{b._count.staffSales}</td>
                 <td className="px-6 py-3 text-right text-slate-700">{b._count.stocktakes}</td>
               </tr>
             ))}

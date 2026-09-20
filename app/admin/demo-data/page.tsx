@@ -5,9 +5,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function DemoDataPage() {
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
-  const [staffCount, saleCount] = await Promise.all([
+  const [staffCount, salesCount] = await Promise.all([
     prisma.staff.count(),
-    prisma.dailySale.count(),
+    prisma.staffSales.count(),
   ]);
 
   return (
@@ -19,7 +19,7 @@ export default async function DemoDataPage() {
 
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 max-w-3xl">
         <p className="text-sm text-amber-900">
-          <strong>⚠ Testing tool:</strong> This generates demo staff, daily sales, and attendance for a selected branch so you can test the report.
+          <strong>⚠ Testing tool:</strong> This generates demo staff, period sales, and attendance for a selected branch so you can test the report.
           Use this to see the reports working, then delete this demo data later and enter real data through the normal pages.
         </p>
       </div>
@@ -30,8 +30,8 @@ export default async function DemoDataPage() {
           <p className="text-2xl font-bold text-slate-900 mt-1">{staffCount}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-4">
-          <p className="text-xs text-slate-500 font-medium">Daily Sales Records</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{saleCount}</p>
+          <p className="text-xs text-slate-500 font-medium">Sales Records</p>
+          <p className="text-2xl font-bold text-slate-900 mt-1">{salesCount}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-4">
           <p className="text-xs text-slate-500 font-medium">Branches</p>
