@@ -8,16 +8,14 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ─── ORGANIZATION & PEOPLE ───────────────────────────────────────────────
-
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  currency  String   @default("KES")
-  timezone  String   @default("Africa/Nairobi")
-  createdAt DateTime @default(now())
-  branches  Branch[]
-  users     User[]
+  id         String   @id @default(cuid())
+  name       String
+  currency   String   @default("KES")
+  timezone   String   @default("Africa/Nairobi")
+  createdAt  DateTime @default(now())
+  branches   Branch[]
+  users      User[]
   stockItems StockItem[]
   customers  Customer[]
 }
@@ -40,6 +38,7 @@ model Branch {
   stockTxs       StockTransaction[]
   stocktakes     Stocktake[]
   attendances    Attendance[]
+  accountBalances AccountBalance[]
   @@unique([organizationId, code])
 }
 
@@ -80,8 +79,6 @@ model Staff {
   @@unique([organizationId, employeeCode])
 }
 
-// ─── DAILY SALES ────────────────────────────────────────────────────────
-
 model DailySale {
   id          String   @id @default(cuid())
   branchId    String
@@ -106,8 +103,6 @@ enum RecordStatus {
   REJECTED
 }
 
-// ─── CUSTOMERS & CREDIT ─────────────────────────────────────────────────
-
 model Customer {
   id             String   @id @default(cuid())
   organizationId String
@@ -127,20 +122,20 @@ model Customer {
 }
 
 model CreditSale {
-  id          String   @id @default(cuid())
-  customerId  String
-  branchId    String
-  staffId     String?
-  saleDate    DateTime
-  invoiceRef  String
-  amount      Decimal  @db.Decimal(18, 2)
-  dueDate     DateTime?
-  status      String   @default("OUTSTANDING")
-  notes       String?
-  createdAt   DateTime @default(now())
-  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  branch      Branch   @relation(fields: [branchId], references: [id])
-  staff       Staff?   @relation(fields: [staffId], references: [id])
+  id         String   @id @default(cuid())
+  customerId String
+  branchId   String
+  staffId    String?
+  saleDate   DateTime
+  invoiceRef String
+  amount     Decimal  @db.Decimal(18, 2)
+  dueDate    DateTime?
+  status     String   @default("OUTSTANDING")
+  notes      String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  branch     Branch   @relation(fields: [branchId], references: [id])
+  staff      Staff?   @relation(fields: [staffId], references: [id])
   @@unique([customerId, invoiceRef])
   @@index([branchId, saleDate])
 }
@@ -162,8 +157,6 @@ model Repayment {
   @@unique([receiptRef])
   @@index([branchId, paymentDate])
 }
-
-// ─── STOCK ──────────────────────────────────────────────────────────────
 
 model StockItem {
   id             String   @id @default(cuid())
@@ -210,14 +203,14 @@ enum StockTxType {
 }
 
 model Stocktake {
-  id             String   @id @default(cuid())
-  branchId       String
-  stocktakeDate  DateTime
-  status         RecordStatus @default(DRAFT)
-  notes          String?
-  createdAt      DateTime @default(now())
-  branch         Branch   @relation(fields: [branchId], references: [id])
-  items          StocktakeItem[]
+  id            String   @id @default(cuid())
+  branchId      String
+  stocktakeDate DateTime
+  status        RecordStatus @default(DRAFT)
+  notes         String?
+  createdAt     DateTime @default(now())
+  branch        Branch   @relation(fields: [branchId], references: [id])
+  items         StocktakeItem[]
   @@index([branchId, stocktakeDate])
 }
 
@@ -235,8 +228,6 @@ model StocktakeItem {
   stockItem     StockItem @relation(fields: [stockItemId], references: [id])
   @@unique([stocktakeId, stockItemId])
 }
-
-// ─── ATTENDANCE ─────────────────────────────────────────────────────────
 
 model Attendance {
   id             String   @id @default(cuid())
@@ -260,4 +251,25 @@ enum AttendanceStatus {
   ABSENT
   PUBLIC_HOLIDAY
   OTHER
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACCOUNT BALANCE (Main Account / Debt Position)
+// ═══════════════════════════════════════════════════════════
+
+model AccountBalance {
+  id                String   @id @default(cuid())
+  branchId          String
+  periodYear        Int
+  periodMonth       Int
+  periodStartDate   DateTime
+  periodEndDate     DateTime
+  openingBalance    Decimal  @db.Decimal(18, 2) @default(0)
+  closingBalance    Decimal  @db.Decimal(18, 2) @default(0)
+  additionalInfo    String?
+  previousReport    Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@unique([branchId, periodYear, periodMonth])
 }

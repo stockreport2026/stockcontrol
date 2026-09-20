@@ -1,4 +1,5 @@
 'use server';
+
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import Decimal from 'decimal.js';
@@ -6,58 +7,60 @@ import { prisma } from '@/lib/db/prisma';
 
 const schema = z.object({
   branchId: z.string().min(1),
-  periodMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  periodYear: z.coerce.number().int().min(2020).max(2100),
+  periodMonth: z.coerce.number().int().min(1).max(12),
+  periodStartDate: z.string().min(1),
+  periodEndDate: z.string().min(1),
   openingBalance: z.string(),
   closingBalance: z.string(),
-  notes: z.string().optional(),
+  additionalInfo: z.string().optional(),
 });
 
 export async function saveAccountBalance(formData: FormData) {
   const parsed = schema.safeParse({
     branchId: formData.get('branchId'),
+    periodYear: formData.get('periodYear'),
     periodMonth: formData.get('periodMonth'),
+    periodStartDate: formData.get('periodStartDate'),
+    periodEndDate: formData.get('periodEndDate'),
     openingBalance: formData.get('openingBalance'),
     closingBalance: formData.get('closingBalance'),
-    notes: formData.get('notes'),
+    additionalInfo: formData.get('additionalInfo'),
   });
-  if (!parsed.success) return { success: false, message: 'Invalid input' };
 
-  const { branchId, periodMonth, openingBalance, closingBalance, notes } = parsed.data;
-  const key = `account_balance_${branchId}_${periodMonth}`;
+  if (!parsed.success) {
+    return { success: false, message: 'Please fill all required fields correctly' };
+  }
 
-  const org = await prisma.organization.findFirst();
-  if (!org) return { success: false, message: 'No organization found' };
+  const d = parsed.data;
+  const opening = new Decimal(d.openingBalance || '0');
+  const closing = new Decimal(d.closingBalance || '0');
 
-  const value = {
-    openingBalance: new Decimal(openingBalance).toFixed(2),
-    closingBalance: new Decimal(closingBalance).toFixed(2),
-    notes: notes || null,
-    updatedAt: new Date().toISOString(),
-  };
-
-  // We reuse the system_settings table for simple key-value storage
-  await (prisma as any).systemSetting?.upsert?.({
-    where: { organizationId_key: { organizationId: org.id, key } },
-    create: { organizationId: org.id, key, value },
-    update: { value },
-  }).catch(async () => {
-    // fallback if system setting table doesn't exist
-    await (prisma as any).$executeRawUnsafe(
-      `CREATE TABLE IF NOT EXISTS "system_settings" (
-        "id" TEXT PRIMARY KEY,
-        "organizationId" TEXT NOT NULL,
-        "key" TEXT NOT NULL,
-        "value" JSONB NOT NULL,
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-        UNIQUE("organizationId", "key")
-      )`
-    );
-    await (prisma as any).$executeRawUnsafe(
-      `INSERT INTO "system_settings" ("id", "organizationId", "key", "value")
-       VALUES (gen_random_uuid()::text, $1, $2, $3::jsonb)
-       ON CONFLICT ("organizationId", "key") DO UPDATE SET "value" = $3::jsonb`,
-      org.id, key, JSON.stringify(value)
-    );
+  await prisma.accountBalance.upsert({
+    where: {
+      branchId_periodYear_periodMonth: {
+        branchId: d.branchId,
+        periodYear: d.periodYear,
+        periodMonth: d.periodMonth,
+      },
+    },
+    create: {
+      branchId: d.branchId,
+      periodYear: d.periodYear,
+      periodMonth: d.periodMonth,
+      periodStartDate: new Date(d.periodStartDate),
+      periodEndDate: new Date(d.periodEndDate),
+      openingBalance: opening,
+      closingBalance: closing,
+      additionalInfo: d.additionalInfo || null,
+    },
+    update: {
+      periodStartDate: new Date(d.periodStartDate),
+      periodEndDate: new Date(d.periodEndDate),
+      openingBalance: opening,
+      closingBalance: closing,
+      additionalInfo: d.additionalInfo || null,
+    },
   });
 
   revalidatePath('/operations/account-balance');
