@@ -20,26 +20,25 @@ model Organization {
 }
 
 model Branch {
-  id             String   @id @default(cuid())
-  organizationId String
-  name           String
-  code           String
-  location       String?
-  status         String   @default("ACTIVE")
-  sellingDays    Int      @default(26)
-  createdAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  staff          Staff[]
-  staffSales     StaffSales[]
-  creditSales    CreditSale[]
-  repayments     Repayment[]
-  stockTxs       StockTransaction[]
-  stocktakes     Stocktake[]
-  attendances    Attendance[]
+  id                 String   @id @default(cuid())
+  organizationId     String
+  name               String
+  code               String
+  location           String?
+  status             String   @default("ACTIVE")
+  sellingDays        Int      @default(26)
+  createdAt          DateTime @default(now())
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff              Staff[]
+  staffSales         StaffSales[]
+  creditSales        CreditSale[]
+  repayments         Repayment[]
+  stockTxs           StockTransaction[]
+  stocktakes         Stocktake[]
+  attendances        Attendance[]
+  accountBalances    AccountBalance[]
+  stockPositions     StockPosition[]
   stockVarianceItems StockVarianceItem[]
-  stockVarianceItems StockVarianceItem[]
-  stockPositions StockPosition[]
-  accountBalances AccountBalance[]
   @@unique([organizationId, code])
 }
 
@@ -80,7 +79,6 @@ model Staff {
   @@unique([organizationId, employeeCode])
 }
 
-// ─── PERIOD-BASED SALES (one row per staff per month) ───
 model StaffSales {
   id              String   @id @default(cuid())
   branchId        String
@@ -108,6 +106,7 @@ model CreditSale {
   saleDate     DateTime
   amount       Decimal  @db.Decimal(18, 2)
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
   branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   staff        Staff    @relation(fields: [staffId], references: [id])
   @@index([branchId, saleDate])
@@ -144,7 +143,41 @@ model Attendance {
   updatedAt       DateTime @updatedAt
   staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
   branch          Branch   @relation(fields: [branchId], references: [id])
-  @@unique([staffId, periodStartDate, periodEndDate])
+  @@index([staffId, periodStartDate])
+  @@index([branchId, periodStartDate])
+}
+
+model StockPosition {
+  id                String   @id @default(cuid())
+  branchId          String
+  periodStartDate   DateTime
+  periodEndDate     DateTime
+  openingStockValue Decimal  @db.Decimal(18, 2)
+  closingStockValue Decimal  @db.Decimal(18, 2)
+  variance          Decimal  @db.Decimal(18, 2)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@index([branchId, periodStartDate])
+  @@index([periodStartDate, periodEndDate])
+}
+
+model StockVarianceItem {
+  id              String   @id @default(cuid())
+  branchId        String
+  periodStartDate DateTime
+  periodEndDate   DateTime
+  itemName        String
+  expectedQty     Decimal  @db.Decimal(18, 2)
+  actualQty       Decimal  @db.Decimal(18, 2)
+  varianceQty     Decimal  @db.Decimal(18, 2)
+  unitCost        Decimal  @db.Decimal(18, 2)
+  varianceValue   Decimal  @db.Decimal(18, 2)
+  reason          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   @@index([branchId, periodStartDate])
 }
 
@@ -240,59 +273,4 @@ model AccountBalance {
   updatedAt         DateTime @updatedAt
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   @@unique([branchId, periodYear, periodMonth])
-}
-
-
-model StockPosition {
-  id                String   @id @default(cuid())
-  branchId          String
-  periodStartDate   DateTime
-  periodEndDate     DateTime
-  openingStockValue Decimal  @db.Decimal(18, 2)
-  closingStockValue Decimal  @db.Decimal(18, 2)
-  variance          Decimal  @db.Decimal(18, 2)
-  notes             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  @@unique([branchId, periodStartDate, periodEndDate])
-  @@index([branchId, periodStartDate])
-}
-
-
-model StockVarianceItem {
-  id              String   @id @default(cuid())
-  branchId        String
-  periodStartDate DateTime
-  periodEndDate   DateTime
-  itemName        String
-  expectedQty     Decimal  @db.Decimal(18, 2)
-  actualQty       Decimal  @db.Decimal(18, 2)
-  varianceQty     Decimal  @db.Decimal(18, 2)
-  unitCost        Decimal  @db.Decimal(18, 2)
-  varianceValue   Decimal  @db.Decimal(18, 2)
-  reason          String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  @@index([branchId, periodStartDate])
-}
-
-
-model StockVarianceItem {
-  id              String   @id @default(cuid())
-  branchId        String
-  periodStartDate DateTime
-  periodEndDate   DateTime
-  itemName        String
-  expectedQty     Decimal  @db.Decimal(18, 2)
-  actualQty       Decimal  @db.Decimal(18, 2)
-  varianceQty     Decimal  @db.Decimal(18, 2)
-  unitCost        Decimal  @db.Decimal(18, 2)
-  varianceValue   Decimal  @db.Decimal(18, 2)
-  reason          String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  @@index([branchId, periodStartDate])
 }

@@ -38,30 +38,38 @@ export async function saveStockPosition(formData: FormData) {
 
   const variance = opening.minus(closing);
 
-  await prisma.stockPosition.upsert({
+  // Find existing record with same branch + period
+  const existing = await prisma.stockPosition.findFirst({
     where: {
-      branchId_periodStartDate_periodEndDate: {
-        branchId: d.branchId,
-        periodStartDate: start,
-        periodEndDate: end,
-      },
-    },
-    create: {
       branchId: d.branchId,
       periodStartDate: start,
       periodEndDate: end,
-      openingStockValue: opening,
-      closingStockValue: closing,
-      variance,
-      notes: d.notes || null,
-    },
-    update: {
-      openingStockValue: opening,
-      closingStockValue: closing,
-      variance,
-      notes: d.notes || null,
     },
   });
+
+  if (existing) {
+    await prisma.stockPosition.update({
+      where: { id: existing.id },
+      data: {
+        openingStockValue: opening,
+        closingStockValue: closing,
+        variance,
+        notes: d.notes || null,
+      },
+    });
+  } else {
+    await prisma.stockPosition.create({
+      data: {
+        branchId: d.branchId,
+        periodStartDate: start,
+        periodEndDate: end,
+        openingStockValue: opening,
+        closingStockValue: closing,
+        variance,
+        notes: d.notes || null,
+      },
+    });
+  }
 
   revalidatePath('/operations/stocktake');
   return { success: true, message: 'Stock position saved' };
