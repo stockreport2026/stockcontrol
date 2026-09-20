@@ -1,12 +1,9 @@
 import { prisma } from '@/lib/db/prisma';
-import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MonthlyReportsPage() {
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
-
-  // Default: current year, month = last month
   const now = new Date();
   const defaultYear = now.getFullYear();
   const defaultMonth = now.getMonth() === 0 ? 12 : now.getMonth();
@@ -34,7 +31,7 @@ export default async function MonthlyReportsPage() {
               <select name="year" defaultValue={defaultYear} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
                 <option value="2024">2024</option>
                 <option value="2025">2025</option>
-                <option value="2026" selected>2026</option>
+                <option value="2026">2026</option>
                 <option value="2027">2027</option>
               </select>
             </div>
