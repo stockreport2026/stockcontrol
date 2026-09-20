@@ -13,10 +13,7 @@ const shortFmt = (n: number) => {
 
 const C = { navy: '#0f172a', emerald: '#059669', rose: '#e11d48', amber: '#d97706', slate: '#64748b', slateLight: '#cbd5e1', grid: '#e2e8f0' };
 
-const tooltipStyle = {
-  backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
-  fontSize: '12px', boxShadow: '0 8px 24px rgba(15,23,42,0.12)', padding: '8px 12px',
-};
+const tooltipStyle = { backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', boxShadow: '0 8px 24px rgba(15,23,42,0.12)', padding: '8px 12px' };
 const axisTick = { fontSize: 11, fill: '#64748b', fontWeight: 500 };
 
 export function CompanyReportClient({ report }: { report: any }) {
@@ -25,7 +22,6 @@ export function CompanyReportClient({ report }: { report: any }) {
 
   const chartData = branches.map((b: any) => ({
     name: b.name.length > 12 ? b.name.slice(0, 11) + '…' : b.name,
-    fullName: b.name,
     Actual: b.actual,
     System: b.system,
   }));
@@ -50,7 +46,6 @@ export function CompanyReportClient({ report }: { report: any }) {
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm print:border-0 print:shadow-none">
-        {/* Header */}
         <div className="px-12 pt-12 pb-8 bg-gradient-to-br from-slate-50 via-white to-slate-50 border-b-4 border-slate-900">
           <div className="flex items-start justify-between gap-12">
             <div className="flex-1">
@@ -61,13 +56,10 @@ export function CompanyReportClient({ report }: { report: any }) {
                   <p className="text-[10px] text-slate-400">Financial Control Division</p>
                 </div>
               </div>
-              <h1 className="text-[28px] leading-tight font-bold text-slate-900 tracking-tight">
-                CONSOLIDATED COMPANY REPORT
-              </h1>
+              <h1 className="text-[28px] leading-tight font-bold text-slate-900 tracking-tight">CONSOLIDATED COMPANY REPORT</h1>
               <p className="text-sm text-slate-500 mt-1">All-Branch Financial & Stock Reconciliation</p>
               <div className="mt-5 inline-flex items-center gap-2 bg-slate-900 text-white text-xs font-medium px-3 py-1.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                {report.periodRange}
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{report.periodRange}
               </div>
             </div>
             <div className="text-right space-y-3 min-w-[220px]">
@@ -87,13 +79,11 @@ export function CompanyReportClient({ report }: { report: any }) {
           </div>
         </div>
 
-        {/* Summary */}
         <section className="px-12 py-8 border-b border-slate-200">
           <div className="flex items-center gap-3 mb-5">
             <span className="text-xs font-mono text-slate-400">01</span>
             <h2 className="text-lg font-bold text-slate-900 tracking-tight">Company Summary</h2>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <KpiCard label="Total Actual Sales" value={fmt(totals.actual)} prefix="KES" />
             <KpiCard label="Total System Sales" value={fmt(totals.system)} prefix="KES" />
@@ -104,22 +94,19 @@ export function CompanyReportClient({ report }: { report: any }) {
             <KpiCard label="Unrecovered Loss" value={fmt(totals.remaining)} prefix="KES" accent={totals.remaining > 0 ? C.rose : C.emerald} />
             <KpiCard label="Company Closing Debt" value={fmt(totals.closingDebt)} prefix="KES" accent={C.rose} />
           </div>
-
           <div className="p-4 rounded-lg text-sm text-slate-700 leading-relaxed bg-slate-50 border-l-4 border-slate-900">
             <p>
-              Across <strong>{totals.branchCount} branches</strong>, Mediocare Pharmaceutical Ltd recorded total actual sales of <strong>KES {fmt(totals.actual)}</strong> against system sales of <strong>KES {fmt(totals.system)}</strong>, yielding a net variance of <strong>KES {fmt(totals.variance)}</strong>. Total stock loss of <strong>KES {fmt(totals.stockLoss)}</strong> was identified from approved stocktakes, of which <strong>KES {fmt(totals.recovery)}</strong> was recovered through excess sales. The company's closing debt position stands at <strong>KES {fmt(totals.closingDebt)}</strong>.
+              Across <strong>{totals.branchCount} branches</strong>, Mediocare Pharmaceutical Ltd recorded total actual sales of <strong>KES {fmt(totals.actual)}</strong> against system sales of <strong>KES {fmt(totals.system)}</strong>. Total stock loss of <strong>KES {fmt(totals.stockLoss)}</strong> was identified, of which <strong>KES {fmt(totals.recovery)}</strong> was recovered. Company closing debt stands at <strong>KES {fmt(totals.closingDebt)}</strong>.
             </p>
           </div>
         </section>
 
-        {/* Branch table */}
         <section className="px-12 py-8 border-b border-slate-200">
           <div className="flex items-center gap-3 mb-5">
             <span className="text-xs font-mono text-slate-400">02</span>
             <h2 className="text-lg font-bold text-slate-900 tracking-tight">Branch-by-Branch Analysis</h2>
           </div>
-
-          <div className="overflow-hidden border border-slate-200 rounded-lg">
+          <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100">
@@ -130,7 +117,7 @@ export function CompanyReportClient({ report }: { report: any }) {
                   <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Stock Loss</th>
                   <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Recovery</th>
                   <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Unrecovered</th>
-                  <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Credit Sales</th>
+                  <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Credit</th>
                   <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Repayments</th>
                   <th className="text-right px-3 py-2.5 font-semibold text-slate-600 uppercase tracking-wider text-[10px]">Closing Debt</th>
                 </tr>
@@ -175,7 +162,6 @@ export function CompanyReportClient({ report }: { report: any }) {
           </div>
         </section>
 
-        {/* Chart */}
         <section className="px-12 py-8 border-b border-slate-200">
           <div className="flex items-center gap-3 mb-5">
             <span className="text-xs font-mono text-slate-400">03</span>
@@ -187,7 +173,7 @@ export function CompanyReportClient({ report }: { report: any }) {
                 <CartesianGrid strokeDasharray="4 4" stroke={C.grid} vertical={false} />
                 <XAxis dataKey="name" tick={{ ...axisTick, fontSize: 10 }} axisLine={{ stroke: C.slateLight }} tickLine={false} angle={-35} textAnchor="end" height={70} />
                 <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={shortFmt} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]} cursor={{ fill: 'rgba(15,23,42,0.04)' }} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12, fontWeight: 500 }} iconType="circle" />
                 <Bar dataKey="System" fill={C.slateLight} radius={[5, 5, 0, 0]} />
                 <Bar dataKey="Actual" fill={C.navy} radius={[5, 5, 0, 0]} />
@@ -196,16 +182,15 @@ export function CompanyReportClient({ report }: { report: any }) {
           </div>
         </section>
 
-        {/* Approval */}
         <section className="px-12 py-8">
           <div className="flex items-center gap-3 mb-5">
             <span className="text-xs font-mono text-slate-400">04</span>
             <h2 className="text-lg font-bold text-slate-900 tracking-tight">Approval</h2>
           </div>
           <div className="grid grid-cols-3 gap-8 pt-4">
-            <SignatureBlock title="Prepared By" role="Head of Finance" />
-            <SignatureBlock title="Reviewed By" role="Operations Director" />
-            <SignatureBlock title="Approved By" role="Managing Director" />
+            <SigBlock title="Prepared By" role="Head of Finance" />
+            <SigBlock title="Reviewed By" role="Operations Director" />
+            <SigBlock title="Approved By" role="Managing Director" />
           </div>
         </section>
 
@@ -229,7 +214,7 @@ function KpiCard({ label, value, prefix, accent }: any) {
   );
 }
 
-function SignatureBlock({ title, role }: { title: string; role: string }) {
+function SigBlock({ title, role }: { title: string; role: string }) {
   return (
     <div>
       <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">{title}</p>

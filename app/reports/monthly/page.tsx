@@ -1,5 +1,4 @@
 import { prisma } from '@/lib/db/prisma';
-import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +16,6 @@ export default async function MonthlyReportsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
-        {/* Branch report */}
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-1">
             <span className="w-1 h-5 bg-slate-900 rounded" />
@@ -54,7 +52,6 @@ export default async function MonthlyReportsPage() {
           </form>
         </div>
 
-        {/* Consolidated report */}
         <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-lg shadow-sm p-6 text-white">
           <div className="flex items-center gap-2 mb-1">
             <span className="w-1 h-5 bg-emerald-400 rounded" />
