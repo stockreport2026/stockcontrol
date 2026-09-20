@@ -96,8 +96,9 @@ export default async function SalesPage({ searchParams }: { searchParams: { year
               <tr>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Branch</th>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Staff</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Actual (KES)</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">System (KES)</th>
+                <th className="text-left px-6 py-3 font-medium text-slate-600">Period</th>
+                <th className="text-right px-6 py-3 font-medium text-slate-600">Actual</th>
+                <th className="text-right px-6 py-3 font-medium text-slate-600">System</th>
                 <th className="text-right px-6 py-3 font-medium text-slate-600">Variance</th>
               </tr>
             </thead>
@@ -108,6 +109,9 @@ export default async function SalesPage({ searchParams }: { searchParams: { year
                   <tr key={s.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-6 py-3 text-slate-700">{s.branch.name}</td>
                     <td className="px-6 py-3 font-medium text-slate-900">{s.staff.firstName} {s.staff.lastName}</td>
+                    <td className="px-6 py-3 text-slate-600 text-xs">
+                      {new Date(s.periodStartDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} — {new Date(s.periodEndDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </td>
                     <td className="px-6 py-3 text-right text-slate-900 font-medium">{Number(s.actualSales).toLocaleString()}</td>
                     <td className="px-6 py-3 text-right text-slate-600">{Number(s.systemSales).toLocaleString()}</td>
                     <td className={`px-6 py-3 text-right font-medium ${v >= 0 ? 'text-green-600' : 'text-red-600'}`}>

@@ -6,9 +6,10 @@ export function SalesForm({ branches, staff }: { branches: any[]; staff: any[] }
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [branchId, setBranchId] = useState(branches[0]?.id ?? '');
+
   const now = new Date();
-  const defaultYear = now.getFullYear();
-  const defaultMonth = now.getMonth() === 0 ? 12 : now.getMonth();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
 
   const staffForBranch = staff.filter((s) => s.branchId === branchId);
 
@@ -25,7 +26,7 @@ export function SalesForm({ branches, staff }: { branches: any[]; staff: any[] }
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
       <h2 className="text-lg font-semibold text-slate-900 mb-4">Record Staff Sales for Period</h2>
       <p className="text-xs text-slate-500 mb-4">
-        Enter the total actual and system sales for one staff member for the entire period.
+        Enter the period date range and the total actual and system sales for that staff member.
       </p>
       <form id="sales-form" action={onSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-3">
         <div className="md:col-span-2">
@@ -43,22 +44,18 @@ export function SalesForm({ branches, staff }: { branches: any[]; staff: any[] }
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Year</label>
-          <input type="number" name="periodYear" defaultValue={defaultYear} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
+          <label className="block text-xs font-medium text-slate-700 mb-1">Period Start</label>
+          <input type="date" name="periodStartDate" defaultValue={firstOfMonth} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Month</label>
-          <select name="periodMonth" defaultValue={defaultMonth} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'short' })}</option>
-            ))}
-          </select>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Period End</label>
+          <input type="date" name="periodEndDate" defaultValue={lastOfMonth} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
         </div>
-        <div>
+        <div className="md:col-span-3">
           <label className="block text-xs font-medium text-slate-700 mb-1">Actual Sales (KES)</label>
           <input type="number" step="0.01" name="actualSales" required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
         </div>
-        <div>
+        <div className="md:col-span-3">
           <label className="block text-xs font-medium text-slate-700 mb-1">System Sales (KES)</label>
           <input type="number" step="0.01" name="systemSales" required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
         </div>

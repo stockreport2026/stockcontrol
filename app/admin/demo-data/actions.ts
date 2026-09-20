@@ -50,7 +50,7 @@ export async function generateDemoData(formData: FormData) {
     const actual = system + variance;
     await prisma.staffSales.upsert({
       where: { staffId_periodYear_periodMonth: { staffId: staff.id, periodYear: year, periodMonth: month } },
-      create: { branchId: branch.id, staffId: staff.id, periodYear: year, periodMonth: month, actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
+      create: { branchId: branch.id, staffId: staff.id, periodYear: year, periodMonth: month, periodStartDate: new Date(year, month - 1, 1), periodEndDate: new Date(year, month, 0), actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
       update: { actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
     });
   }
