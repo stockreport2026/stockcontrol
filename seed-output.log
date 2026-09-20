@@ -1,0 +1,16 @@
+Environment variables loaded from prisma/.env
+Running seed command `npx tsx prisma/seed.ts` ...
+🌱 Seeding database...
+✅ Seeded: 6 staff, 156 sales, 21 credit sales, 7 repayments, 72 stock tx, 156 attendance records
+
+🌱  The seed command has been executed.
+┌─────────────────────────────────────────────────────────┐
+│  Update available 5.22.0 -> 8.0.0-rc.15                 │
+│                                                         │
+│  This is a major update - please follow the guide at    │
+│  https://pris.ly/d/major-version-upgrade                │
+│                                                         │
+│  Run the following to update                            │
+│    npm i --save-dev prisma@latest                       │
+│    npm i @prisma/client@latest                          │
+└─────────────────────────────────────────────────────────┘
