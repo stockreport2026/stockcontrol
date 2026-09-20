@@ -6,12 +6,8 @@ export const dynamic = 'force-dynamic';
 
 async function getStockData() {
   const items = await prisma.stockItem.findMany({
-    include: {
-      transactions: {
-        include: { branch: true },
-      },
-    },
-    orderBy: { sku: 'asc' },
+    include: { transactions: true },
+    orderBy: { description: 'asc' },
   });
 
   return items.map((item) => {
@@ -39,7 +35,6 @@ async function getStockData() {
 
     return {
       id: item.id,
-      sku: item.sku,
       description: item.description,
       category: item.category ?? '—',
       unit: item.unit,
@@ -56,7 +51,6 @@ async function getStockData() {
 
 export default async function StockPage() {
   const items = await getStockData();
-
   const totalValue = items.reduce((sum, i) => sum.plus(i.value), new Decimal(0));
 
   return (
@@ -64,12 +58,10 @@ export default async function StockPage() {
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Stock Items</h1>
-          <p className="text-slate-500 mt-1">Live stock position calculated from all transactions</p>
+          <p className="text-slate-500 mt-1">Live stock position across Mediocare Pharmaceutical Ltd</p>
         </div>
-        <Link
-          href="/operations/stock/new-transaction"
-          className="bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-700"
-        >
+        <Link href="/operations/stock/new-transaction"
+          className="bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-700">
           + Record Movement
         </Link>
       </div>
@@ -81,15 +73,11 @@ export default async function StockPage() {
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500 font-medium">Total Transactions</p>
-          <p className="text-2xl font-bold mt-1 text-slate-900">
-            {items.reduce((s, i) => s + i.txCount, 0)}
-          </p>
+          <p className="text-2xl font-bold mt-1 text-slate-900">{items.reduce((s, i) => s + i.txCount, 0)}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
           <p className="text-sm text-slate-500 font-medium">Total Stock Value</p>
-          <p className="text-2xl font-bold mt-1 text-slate-900">
-            KES {Number(totalValue.toFixed(2)).toLocaleString()}
-          </p>
+          <p className="text-2xl font-bold mt-1 text-slate-900">KES {Number(totalValue.toFixed(2)).toLocaleString()}</p>
         </div>
       </div>
 
@@ -105,7 +93,7 @@ export default async function StockPage() {
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Category</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Opening</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">+ Purchases</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">- Sales</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">− Sales</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Expected</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Unit Cost</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Value (KES)</th>
@@ -114,29 +102,14 @@ export default async function StockPage() {
             <tbody>
               {items.map((i) => (
                 <tr key={i.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900">{i.description}</div>
-                    <div className="text-xs text-slate-500">{i.sku}</div>
-                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900">{i.description}</td>
                   <td className="px-4 py-3 text-slate-600">{i.category}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">
-                    {Number(i.opening).toLocaleString()} {i.unit}
-                  </td>
-                  <td className="px-4 py-3 text-right text-green-600">
-                    +{Number(i.purchases).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right text-red-600">
-                    -{Number(i.sales).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium text-slate-900">
-                    {Number(i.expectedClosing).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-600">
-                    {Number(i.unitCost).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium text-slate-900">
-                    {Number(i.value).toLocaleString()}
-                  </td>
+                  <td className="px-4 py-3 text-right text-slate-600">{Number(i.opening).toLocaleString()} {i.unit}</td>
+                  <td className="px-4 py-3 text-right text-green-600">+{Number(i.purchases).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-red-600">−{Number(i.sales).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-medium text-slate-900">{Number(i.expectedClosing).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{Number(i.unitCost).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-medium text-slate-900">{Number(i.value).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

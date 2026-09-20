@@ -4,25 +4,13 @@ import { useState, useTransition } from 'react';
 import { updateStocktakeItems, approveStocktake } from './actions';
 
 type ItemRow = {
-  id: string;
-  sku: string;
-  description: string;
-  unit: string;
-  expectedQty: string;
-  actualQty: string;
-  varianceQty: string;
-  unitCost: string;
-  varianceValue: string;
+  id: string; description: string; unit: string;
+  expectedQty: string; actualQty: string; varianceQty: string;
+  unitCost: string; varianceValue: string;
 };
 
-export function StocktakeForm({
-  stocktakeId,
-  items,
-  isApproved,
-}: {
-  stocktakeId: string;
-  items: ItemRow[];
-  isApproved: boolean;
+export function StocktakeForm({ stocktakeId, items, isApproved }: {
+  stocktakeId: string; items: ItemRow[]; isApproved: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -34,7 +22,6 @@ export function StocktakeForm({
       setMessage(res.message);
     });
   };
-
   const handleApprove = () => {
     if (!confirm('Approve this stocktake? This will lock the values.')) return;
     setMessage(null);
@@ -44,33 +31,13 @@ export function StocktakeForm({
     });
   };
 
-  // Compute totals
-  const totals = items.reduce(
-    (acc, i) => {
-      const expected = parseFloat(i.expectedQty) * parseFloat(i.unitCost);
-      const actual = parseFloat(i.actualQty) * parseFloat(i.unitCost);
-      acc.expected += expected;
-      acc.actual += actual;
-      acc.variance += expected - actual;
-      return acc;
-    },
-    { expected: 0, actual: 0, variance: 0 }
-  );
-
   return (
     <form action={handleSave}>
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Count Items ({items.length})
-          </h2>
-          {!isApproved && (
-            <p className="text-xs text-slate-500">
-              Enter physical counts, then Save before Approving
-            </p>
-          )}
+          <h2 className="text-lg font-semibold text-slate-900">Count Items ({items.length})</h2>
+          {!isApproved && <p className="text-xs text-slate-500">Enter physical counts, then Save before Approving</p>}
         </div>
-
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
@@ -90,95 +57,41 @@ export function StocktakeForm({
                 const isSurplus = varianceValue < -0.001;
                 return (
                   <tr key={i.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-900">{i.description}</div>
-                      <div className="text-xs text-slate-500">{i.sku}</div>
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {Number(i.expectedQty).toLocaleString()} {i.unit}
-                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{i.description}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{Number(i.expectedQty).toLocaleString()} {i.unit}</td>
                     <td className="px-4 py-3 text-right">
-                      <input
-                        type="number"
-                        name={`actual_${i.id}`}
-                        step="0.01"
-                        min="0"
-                        defaultValue={i.actualQty}
-                        disabled={isApproved}
-                        placeholder="0"
-                        className="w-32 border border-slate-300 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-slate-900 disabled:bg-slate-100"
-                      />
+                      <input type="number" name={`actual_${i.id}`} step="0.01" min="0" defaultValue={i.actualQty}
+                        disabled={isApproved} placeholder="0"
+                        className="w-32 border border-slate-300 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-slate-900 disabled:bg-slate-100" />
                     </td>
-                    <td className={`px-4 py-3 text-right font-medium ${
-                      isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-500'
-                    }`}>
-                      {isLoss ? '' : isSurplus ? '(' : ''}
-                      {Number(i.varianceQty).toLocaleString()}
-                      {isSurplus ? ')' : ''}
+                    <td className={`px-4 py-3 text-right font-medium ${isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-500'}`}>
+                      {isLoss ? '' : isSurplus ? '(' : ''}{Number(i.varianceQty).toLocaleString()}{isSurplus ? ')' : ''}
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-600">
-                      {Number(i.unitCost).toLocaleString()}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-medium ${
-                      isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-500'
-                    }`}>
-                      {isLoss ? '' : isSurplus ? '(' : ''}
-                      {Number(Math.abs(varianceValue)).toLocaleString()}
-                      {isSurplus ? ')' : ''}
+                    <td className="px-4 py-3 text-right text-slate-600">{Number(i.unitCost).toLocaleString()}</td>
+                    <td className={`px-4 py-3 text-right font-medium ${isLoss ? 'text-red-600' : isSurplus ? 'text-green-600' : 'text-slate-500'}`}>
+                      {isLoss ? '' : isSurplus ? '(' : ''}{Number(Math.abs(varianceValue)).toLocaleString()}{isSurplus ? ')' : ''}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot className="bg-slate-100 font-medium">
-              <tr>
-                <td className="px-4 py-3 text-slate-900">TOTALS</td>
-                <td className="px-4 py-3 text-right text-slate-900">
-                  {totals.expected.toLocaleString()}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-900">
-                  {totals.actual.toLocaleString()}
-                </td>
-                <td colSpan={2}></td>
-                <td className={`px-4 py-3 text-right ${
-                  totals.variance > 0 ? 'text-red-600' : totals.variance < 0 ? 'text-green-600' : 'text-slate-500'
-                }`}>
-                  {totals.variance > 0 ? '' : totals.variance < 0 ? '(' : ''}
-                  {Math.abs(totals.variance).toLocaleString()}
-                  {totals.variance < 0 ? ')' : ''}
-                </td>
-              </tr>
-            </tfoot>
           </table>
         </div>
-
         <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between bg-slate-50">
-          <div className="text-sm text-slate-600">
-            {message && <span className="text-green-600 font-medium">{message}</span>}
-          </div>
-          {!isApproved && (
+          <div className="text-sm text-slate-600">{message && <span className="text-green-600 font-medium">{message}</span>}</div>
+          {!isApproved ? (
             <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={isPending}
-                className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
-              >
+              <button type="submit" disabled={isPending}
+                className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-100 disabled:opacity-50">
                 {isPending ? 'Saving...' : 'Save Counts'}
               </button>
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={isPending}
-                className="bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-700 disabled:opacity-50"
-              >
+              <button type="button" onClick={handleApprove} disabled={isPending}
+                className="bg-slate-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-slate-700 disabled:opacity-50">
                 Approve Stocktake
               </button>
             </div>
-          )}
-          {isApproved && (
-            <span className="inline-block px-3 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-              ✓ Approved & Locked
-            </span>
+          ) : (
+            <span className="inline-block px-3 py-1 rounded text-xs font-medium bg-green-100 text-green-800">✓ Approved & Locked</span>
           )}
         </div>
       </div>

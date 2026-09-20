@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function NewTransactionPage() {
   const [items, branches] = await Promise.all([
-    prisma.stockItem.findMany({ orderBy: { sku: 'asc' } }),
+    prisma.stockItem.findMany({ orderBy: { description: 'asc' } }),
     prisma.branch.findMany({ orderBy: { name: 'asc' } }),
   ]);
 
@@ -17,7 +17,7 @@ export default async function NewTransactionPage() {
       </div>
 
       <TxForm
-        items={items.map((i) => ({ id: i.id, label: `${i.sku} — ${i.description}` }))}
+        items={items.map((i) => ({ id: i.id, label: i.description }))}
         branches={branches.map((b) => ({ id: b.id, label: `${b.name} (${b.code})` }))}
       />
     </div>

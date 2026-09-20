@@ -23,7 +23,6 @@ const BRANCHES = [
   { name: 'Rhoda', code: 'MED-RHD-01', location: 'Rhoda' },
 ];
 
-// Pharmaceutical items (Mediocare Pharmaceutical Ltd)
 const PHARMA_ITEMS = [
   { description: 'Paracetamol 500mg (100 tabs)', category: 'Analgesics', unit: 'pack', unitCost: 120 },
   { description: 'Amoxicillin 500mg (21 caps)', category: 'Antibiotics', unit: 'pack', unitCost: 350 },
@@ -35,7 +34,6 @@ const PHARMA_ITEMS = [
   { description: 'Vitamin C 100mg (30 tabs)', category: 'Supplements', unit: 'pack', unitCost: 80 },
 ];
 
-// First names pool
 const FIRST_NAMES = ['Faith','Maurice','Grace','Brian','Sarah','David','Mary','John','Esther','Peter','Lucy','Daniel','Ann','Joseph','Rose','Paul','Mercy','Kevin','Joyce','Stephen','Ruth','Samuel','Lydia','Isaac','Beatrice','Elijah'];
 const LAST_NAMES = ['Achieng','Otieno','Wanjiku','Kamau','Njeri','Mwangi','Akinyi','Odhiambo','Wambui','Kariuki','Onyango','Kimani','Atieno','Mutua','Chebet','Kiprop','Anyango','Bett','Njoroge','Maina'];
 
@@ -61,7 +59,6 @@ async function main() {
     data: { name: 'Mediocare Pharmaceutical Ltd', currency: 'KES', timezone: 'Africa/Nairobi' },
   });
 
-  // Create all 17 branches
   const branches = await Promise.all(
     BRANCHES.map((b) =>
       prisma.branch.create({
@@ -69,7 +66,6 @@ async function main() {
       })
     )
   );
-
   console.log(`   ✓ ${branches.length} branches created`);
 
   await prisma.user.createMany({
@@ -80,20 +76,16 @@ async function main() {
     ],
   });
 
-  // Create 2-3 staff per branch
   const allStaff: { id: string; branchId: string; name: string }[] = [];
   let staffCounter = 1;
   for (const branch of branches) {
-    const staffPerBranch = 2 + Math.floor(Math.random() * 2); // 2-3
+    const staffPerBranch = 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < staffPerBranch; i++) {
       const fn = FIRST_NAMES[(staffCounter - 1) % FIRST_NAMES.length];
       const ln = LAST_NAMES[(staffCounter - 1) % LAST_NAMES.length];
       const empCode = `${branch.code}-S${String(i + 1).padStart(2, '0')}`;
       const s = await prisma.staff.create({
-        data: {
-          organizationId: org.id, branchId: branch.id,
-          firstName: fn, lastName: ln, employeeCode: empCode,
-        },
+        data: { organizationId: org.id, branchId: branch.id, firstName: fn, lastName: ln, employeeCode: empCode },
       });
       allStaff.push({ id: s.id, branchId: branch.id, name: `${fn} ${ln}` });
       staffCounter++;
@@ -101,18 +93,15 @@ async function main() {
   }
   console.log(`   ✓ ${allStaff.length} staff created`);
 
-  // Daily sales for August 2026 for all branches
   const saleData: any[] = [];
   for (const staff of allStaff) {
     for (let day = 1; day <= 26; day++) {
       const dow = new Date(2026, 7, day).getDay();
       if (dow === 0) continue;
-
       const base = 8000 + Math.floor(Math.random() * 12000);
       const system = base;
       const variance = Math.floor(Math.random() * 2600 - 1200);
       const actual = system + variance;
-
       saleData.push({
         branchId: staff.branchId, staffId: staff.id, saleDate: new Date(2026, 7, day),
         actualSales: new Decimal(actual), systemSales: new Decimal(system),
@@ -121,9 +110,7 @@ async function main() {
     }
   }
   await prisma.dailySale.createMany({ data: saleData });
-  console.log(`   ✓ ${saleData.length} sales records`);
 
-  // Customers per branch
   const customerNames = ['Acme Pharmacy','Lake Pharmacy','County Hospital','Sunrise Clinic','Care Medical','Mwangaza Health','Riverside Chemist','Union Drugstore'];
   const customers: any[] = [];
   for (let i = 0; i < branches.length; i++) {
@@ -134,7 +121,6 @@ async function main() {
         data: {
           organizationId: org.id, branchId: branch.id,
           name: `${customerNames[(i + j) % customerNames.length]} ${branch.code.slice(-2)}`,
-          phone: `+2547${String(10000000 + Math.floor(Math.random() * 9000000)).slice(0, 8)}`,
           creditLimit: new Decimal(150000 + Math.floor(Math.random() * 350000)),
           openingBalance: new Decimal(0),
         },
@@ -143,7 +129,6 @@ async function main() {
     }
   }
 
-  // Credit Sales
   const creditData: any[] = [];
   let invNum = 5001;
   for (const cust of customers) {
@@ -153,14 +138,12 @@ async function main() {
       creditData.push({
         customerId: cust.id, branchId: cust.branchId,
         saleDate: new Date(2026, 7, 3 + i * 5),
-        invoiceRef: `INV-${invNum++}`,
-        amount: new Decimal(amount), status: 'OUTSTANDING',
+        invoiceRef: `INV-${invNum++}`, amount: new Decimal(amount), status: 'OUTSTANDING',
       });
     }
   }
   await prisma.creditSale.createMany({ data: creditData });
 
-  // Repayments
   const repayData: any[] = [];
   let rcptNum = 8001;
   for (const cust of customers) {
@@ -172,95 +155,52 @@ async function main() {
       repayData.push({
         customerId: cust.id, branchId: cust.branchId,
         paymentDate: new Date(2026, 7, 10 + i * 6),
-        amount: new Decimal(amount), paymentMethod: 'CASH',
-        receiptRef: `RCP-${rcptNum++}`,
+        amount: new Decimal(amount), paymentMethod: 'CASH', receiptRef: `RCP-${rcptNum++}`,
       });
     }
   }
   await prisma.repayment.createMany({ data: repayData });
 
-  // Stock items (pharmaceutical)
   const items = await Promise.all(
     PHARMA_ITEMS.map((p) =>
       prisma.stockItem.create({
-        data: {
-          organizationId: org.id, description: p.description,
-          category: p.category, unit: p.unit, unitCost: new Decimal(p.unitCost),
-        },
+        data: { organizationId: org.id, description: p.description, category: p.category, unit: p.unit, unitCost: new Decimal(p.unitCost) },
       })
     )
   );
-  console.log(`   ✓ ${items.length} pharmaceutical items`);
 
-  // Stock transactions per branch
   const stockTxs: any[] = [];
   for (const item of items) {
     for (const branch of branches) {
       const openQty = 300 + Math.floor(Math.random() * 400);
-      stockTxs.push({
-        stockItemId: item.id, branchId: branch.id,
-        transactionDate: new Date(2026, 6, 31),
-        type: StockTxType.OPENING,
-        quantity: new Decimal(openQty),
-        unitCost: item.unitCost,
-        value: new Decimal(openQty).times(item.unitCost.toString()),
-      });
+      stockTxs.push({ stockItemId: item.id, branchId: branch.id, transactionDate: new Date(2026, 6, 31), type: StockTxType.OPENING, quantity: new Decimal(openQty), unitCost: item.unitCost, value: new Decimal(openQty).times(item.unitCost.toString()) });
       for (let w = 0; w < 2; w++) {
         const qty = 100 + Math.floor(Math.random() * 200);
-        stockTxs.push({
-          stockItemId: item.id, branchId: branch.id,
-          transactionDate: new Date(2026, 7, 3 + w * 10),
-          type: StockTxType.PURCHASE,
-          quantity: new Decimal(qty),
-          unitCost: item.unitCost,
-          value: new Decimal(qty).times(item.unitCost.toString()),
-        });
+        stockTxs.push({ stockItemId: item.id, branchId: branch.id, transactionDate: new Date(2026, 7, 3 + w * 10), type: StockTxType.PURCHASE, quantity: new Decimal(qty), unitCost: item.unitCost, value: new Decimal(qty).times(item.unitCost.toString()) });
       }
       const soldQty = 100 + Math.floor(Math.random() * 200);
-      stockTxs.push({
-        stockItemId: item.id, branchId: branch.id,
-        transactionDate: new Date(2026, 7, 26),
-        type: StockTxType.SALE,
-        quantity: new Decimal(-soldQty),
-        unitCost: item.unitCost,
-        value: new Decimal(-soldQty).times(item.unitCost.toString()),
-      });
+      stockTxs.push({ stockItemId: item.id, branchId: branch.id, transactionDate: new Date(2026, 7, 26), type: StockTxType.SALE, quantity: new Decimal(-soldQty), unitCost: item.unitCost, value: new Decimal(-soldQty).times(item.unitCost.toString()) });
     }
   }
   await prisma.stockTransaction.createMany({ data: stockTxs });
 
-  // Approved stocktakes for ALL branches — realistic 2-4% shrinkage
   for (const branch of branches) {
     const st = await prisma.stocktake.create({
-      data: {
-        branchId: branch.id,
-        stocktakeDate: new Date(2026, 7, 26),
-        status: 'APPROVED',
-        notes: `Month-end physical count — August 2026`,
-      },
+      data: { branchId: branch.id, stocktakeDate: new Date(2026, 7, 26), status: 'APPROVED', notes: `Month-end physical count — August 2026` },
     });
     for (const item of items) {
-      const itemTxs = await prisma.stockTransaction.findMany({
-        where: { stockItemId: item.id, branchId: branch.id },
-      });
+      const itemTxs = await prisma.stockTransaction.findMany({ where: { stockItemId: item.id, branchId: branch.id } });
       const expected = itemTxs.reduce((s, t) => s + Number(t.quantity), 0);
       const shrinkPct = 0.02 + Math.random() * 0.025;
       const actual = Math.max(0, Math.round(expected * (1 - shrinkPct)));
       const varianceQty = expected - actual;
       const varianceValue = varianceQty * Number(item.unitCost);
       await prisma.stocktakeItem.create({
-        data: {
-          stocktakeId: st.id, stockItemId: item.id,
-          expectedQty: new Decimal(expected), actualQty: new Decimal(actual),
-          varianceQty: new Decimal(varianceQty), unitCost: item.unitCost,
-          varianceValue: new Decimal(varianceValue),
-        },
+        data: { stocktakeId: st.id, stockItemId: item.id, expectedQty: new Decimal(expected), actualQty: new Decimal(actual), varianceQty: new Decimal(varianceQty), unitCost: item.unitCost, varianceValue: new Decimal(varianceValue) },
       });
     }
   }
-  console.log(`   ✓ ${branches.length} approved stocktakes`);
 
-  // Attendance (~90%)
   const attData: any[] = [];
   for (const staff of allStaff) {
     for (let day = 1; day <= 26; day++) {
@@ -275,25 +215,18 @@ async function main() {
         else if (r < 0.99) status = 'SICK_LEAVE';
         else status = 'ABSENT';
       }
-      attData.push({
-        staffId: staff.id, branchId: staff.branchId,
-        attendanceDate: new Date(2026, 7, day), status,
-      });
+      attData.push({ staffId: staff.id, branchId: staff.branchId, attendanceDate: new Date(2026, 7, day), status });
     }
   }
   await prisma.attendance.createMany({ data: attData });
 
-  // Account balances for August 2026
   for (const branch of branches) {
     const opening = 50000 + Math.floor(Math.random() * 150000);
     await prisma.accountBalance.create({
       data: {
-        branchId: branch.id,
-        periodYear: 2026, periodMonth: 8,
-        periodStartDate: new Date(2026, 7, 1),
-        periodEndDate: new Date(2026, 7, 26),
-        openingBalance: new Decimal(opening),
-        closingBalance: new Decimal(0),
+        branchId: branch.id, periodYear: 2026, periodMonth: 8,
+        periodStartDate: new Date(2026, 7, 1), periodEndDate: new Date(2026, 7, 26),
+        openingBalance: new Decimal(opening), closingBalance: new Decimal(0),
       },
     });
   }
