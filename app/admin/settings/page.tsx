@@ -7,14 +7,16 @@ export default async function SettingsPage() {
   const counts = await Promise.all([
     prisma.branch.count(),
     prisma.staff.count(),
-    prisma.customer.count(),
     prisma.stockItem.count(),
     prisma.dailySale.count(),
     prisma.creditSale.count(),
     prisma.repayment.count(),
     prisma.stocktake.count(),
     prisma.attendance.count(),
+    prisma.accountBalance.count(),
   ]);
+
+  const labels = ['Branches','Staff','Stock Items','Daily Sales Records','Credit Sales','Repayments','Stocktakes','Attendance Records','Account Balances'];
 
   return (
     <div>
@@ -36,15 +38,12 @@ export default async function SettingsPage() {
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">System Data</h2>
           <dl className="space-y-2 text-sm">
-            <div className="flex justify-between"><dt className="text-slate-500">Branches</dt><dd className="font-medium">{counts[0]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Staff</dt><dd className="font-medium">{counts[1]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Customers</dt><dd className="font-medium">{counts[2]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Stock Items</dt><dd className="font-medium">{counts[3]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Daily Sales Records</dt><dd className="font-medium">{counts[4]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Credit Sales</dt><dd className="font-medium">{counts[5]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Repayments</dt><dd className="font-medium">{counts[6]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Stocktakes</dt><dd className="font-medium">{counts[7]}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Attendance Records</dt><dd className="font-medium">{counts[8]}</dd></div>
+            {labels.map((label, i) => (
+              <div key={label} className="flex justify-between">
+                <dt className="text-slate-500">{label}</dt>
+                <dd className="font-medium">{counts[i]}</dd>
+              </div>
+            ))}
           </dl>
         </div>
 
