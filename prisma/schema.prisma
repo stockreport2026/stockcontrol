@@ -36,6 +36,7 @@ model Branch {
   stockTxs       StockTransaction[]
   stocktakes     Stocktake[]
   attendances    Attendance[]
+  stockPositions StockPosition[]
   accountBalances AccountBalance[]
   @@unique([organizationId, code])
 }
@@ -234,4 +235,21 @@ model AccountBalance {
   updatedAt         DateTime @updatedAt
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   @@unique([branchId, periodYear, periodMonth])
+}
+
+
+model StockPosition {
+  id                String   @id @default(cuid())
+  branchId          String
+  periodYear        Int
+  periodMonth       Int
+  openingStockValue Decimal  @db.Decimal(18, 2)
+  closingStockValue Decimal  @db.Decimal(18, 2)
+  variance          Decimal  @db.Decimal(18, 2)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@unique([branchId, periodYear, periodMonth])
+  @@index([periodYear, periodMonth])
 }

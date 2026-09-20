@@ -8,33 +8,19 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
   const month = parseInt(searchParams.month ?? '8');
   const branchId = searchParams.branchId;
 
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59);
-
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
 
-  const [sales, creditSales, repayments, stocktakes, accounts] = await Promise.all([
-    prisma.staffSales.findMany({
-      where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) },
-    }),
-    prisma.creditSale.findMany({
-      where: { saleDate: { gte: startDate, lte: endDate }, ...(branchId ? { branchId } : {}) },
-    }),
-    prisma.repayment.findMany({
-      where: { paymentDate: { gte: startDate, lte: endDate }, ...(branchId ? { branchId } : {}) },
-    }),
-    prisma.stocktake.findMany({
-      where: { stocktakeDate: { gte: startDate, lte: endDate }, status: 'APPROVED', ...(branchId ? { branchId } : {}) },
-      include: { items: true },
-    }),
-    prisma.accountBalance.findMany({
-      where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) },
-    }),
+  const [sales, creditSales, repayments, stockPositions, accounts] = await Promise.all([
+    prisma.staffSales.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
+    prisma.creditSale.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
+    prisma.repayment.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
+    prisma.stockPosition.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
+    prisma.accountBalance.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
   ]);
 
   const branchIds = new Set<string>();
   sales.forEach((s) => branchIds.add(s.branchId));
-  stocktakes.forEach((s) => branchIds.add(s.branchId));
+  stockPositions.forEach((s) => branchIds.add(s.branchId));
   accounts.forEach((a) => branchIds.add(a.branchId));
 
   const rows: any[] = [];
@@ -44,7 +30,6 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
     const branch = branches.find((b) => b.id === bid);
     if (!branch) continue;
 
-    // Per-staff adjusted variance
     const branchSales = sales.filter((s) => s.branchId === bid);
     const branchCredit = creditSales.filter((c) => c.branchId === bid);
     const branchRepay = repayments.filter((r) => r.branchId === bid);
@@ -58,11 +43,13 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
       return variance.isPositive() ? sum.plus(variance) : sum;
     }, new Decimal(0));
 
-    const branchStock = stocktakes.filter((s) => s.branchId === bid);
+    const pos = stockPositions.find((s) => s.branchId === bid);
     let stockLoss = new Decimal(0);
-    for (const st of branchStock) for (const i of st.items) {
-      const vv = new Decimal(i.varianceValue.toString());
-      if (vv.isPositive()) stockLoss = stockLoss.plus(vv);
+    if (pos) {
+      const op = new Decimal(pos.openingStockValue.toString());
+      const cl = new Decimal(pos.closingStockValue.toString());
+      const v = op.minus(cl);
+      if (v.isPositive()) stockLoss = v;
     }
 
     const recovery = Decimal.min(excessSales, stockLoss);
@@ -73,23 +60,15 @@ export default async function RecoveryPage({ searchParams }: { searchParams: { y
     const recoveryRate = stockLoss.isZero() ? new Decimal(0) : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
 
     rows.push({
-      branchId: bid,
-      branchName: branch.name,
-      excess: Number(excessSales.toFixed(2)),
-      loss: Number(stockLoss.toFixed(2)),
-      recovery: Number(recovery.toFixed(2)),
-      remaining: Number(remaining.toFixed(2)),
-      recoveryRate: Number(recoveryRate.toFixed(2)),
-      opening: Number(opening.toFixed(2)),
-      closing: Number(closing.toFixed(2)),
+      branchId: bid, branchName: branch.name,
+      excess: Number(excessSales.toFixed(2)), loss: Number(stockLoss.toFixed(2)),
+      recovery: Number(recovery.toFixed(2)), remaining: Number(remaining.toFixed(2)),
+      recoveryRate: Number(recoveryRate.toFixed(2)), opening: Number(opening.toFixed(2)), closing: Number(closing.toFixed(2)),
     });
 
-    totals.excess = totals.excess.plus(excessSales);
-    totals.loss = totals.loss.plus(stockLoss);
-    totals.recovery = totals.recovery.plus(recovery);
-    totals.remaining = totals.remaining.plus(remaining);
-    totals.opening = totals.opening.plus(opening);
-    totals.closing = totals.closing.plus(closing);
+    totals.excess = totals.excess.plus(excessSales); totals.loss = totals.loss.plus(stockLoss);
+    totals.recovery = totals.recovery.plus(recovery); totals.remaining = totals.remaining.plus(remaining);
+    totals.opening = totals.opening.plus(opening); totals.closing = totals.closing.plus(closing);
   }
 
   const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });

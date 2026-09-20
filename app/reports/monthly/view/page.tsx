@@ -14,11 +14,7 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
 
   const y = parseInt(year);
   const m = parseInt(month);
-
-  const accountBalance = await prisma.accountBalance.findUnique({
-    where: { branchId_periodYear_periodMonth: { branchId, periodYear: y, periodMonth: m } },
-  });
-
+  const accountBalance = await prisma.accountBalance.findUnique({ where: { branchId_periodYear_periodMonth: { branchId, periodYear: y, periodMonth: m } } });
   const startDate = accountBalance?.periodStartDate ?? new Date(y, m - 1, 1);
   const endDate = accountBalance?.periodEndDate ?? new Date(y, m, 0, 23, 59, 59);
   const additionalInfo = accountBalance?.additionalInfo ?? null;
@@ -27,14 +23,14 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
   const prevMonth = m === 1 ? 12 : m - 1;
   const prevYear = m === 1 ? y - 1 : y;
 
-  const [staffSales, creditSales, repayments, attendance, prevSales, stocktakes, prevStocktakes] = await Promise.all([
+  const [staffSales, creditSales, repayments, attendance, prevSales, stockPosition, prevStockPosition] = await Promise.all([
     prisma.staffSales.findMany({ where: { branchId, periodYear: y, periodMonth: m }, include: { staff: true } }),
     prisma.creditSale.findMany({ where: { branchId, saleDate: { gte: startDate, lte: endDate } } }),
     prisma.repayment.findMany({ where: { branchId, paymentDate: { gte: startDate, lte: endDate } } }),
     prisma.attendance.findMany({ where: { branchId, periodYear: y, periodMonth: m }, include: { staff: true } }),
     prisma.staffSales.findMany({ where: { branchId, periodYear: prevYear, periodMonth: prevMonth } }),
-    prisma.stocktake.findMany({ where: { branchId, stocktakeDate: { gte: startDate, lte: endDate }, status: 'APPROVED' }, include: { items: { include: { stockItem: true } } } }),
-    prisma.stocktake.findMany({ where: { branchId, stocktakeDate: { gte: new Date(prevYear, prevMonth - 1, 1), lte: new Date(prevYear, prevMonth, 0, 23, 59, 59) }, status: 'APPROVED' }, include: { items: true } }),
+    prisma.stockPosition.findUnique({ where: { branchId_periodYear_periodMonth: { branchId, periodYear: y, periodMonth: m } } }),
+    prisma.stockPosition.findUnique({ where: { branchId_periodYear_periodMonth: { branchId, periodYear: prevYear, periodMonth: prevMonth } } }),
   ]);
 
   const rawActual = staffSales.reduce((s, x) => s.plus(x.actualSales.toString()), new Decimal(0));
@@ -85,17 +81,15 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
   const excessSales = staffSummary.reduce((s, st) => st.variance > 0 ? s.plus(st.variance) : s, new Decimal(0));
   const shortSales = staffSummary.reduce((s, st) => st.variance < 0 ? s.plus(Math.abs(st.variance)) : s, new Decimal(0));
 
-  // Stock loss
-  let stockLoss = new Decimal(0);
+  // Cash-based stock loss
   let openingStock = new Decimal(0);
-  const stockLossItems: any[] = [];
-  for (const st of stocktakes) for (const item of st.items) {
-    const vv = new Decimal(item.varianceValue.toString());
-    if (vv.isPositive()) stockLoss = stockLoss.plus(vv);
-    openingStock = openingStock.plus(new Decimal(item.expectedQty.toString()).times(item.unitCost.toString()));
-    if (vv.abs().greaterThan(500)) {
-      stockLossItems.push({ description: item.stockItem.description, unit: item.stockItem.unit, expected: Number(item.expectedQty), actual: Number(item.actualQty), variance: Number(item.varianceQty), value: Number(vv.toFixed(2)) });
-    }
+  let closingStock = new Decimal(0);
+  let stockLoss = new Decimal(0);
+  if (stockPosition) {
+    openingStock = new Decimal(stockPosition.openingStockValue.toString());
+    closingStock = new Decimal(stockPosition.closingStockValue.toString());
+    const variance = openingStock.minus(closingStock);
+    if (variance.isPositive()) stockLoss = variance;
   }
   const shrinkageRate = openingStock.isZero() ? new Decimal(0) : stockLoss.dividedBy(openingStock).times(100);
 
@@ -114,13 +108,15 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
   const totalScheduled = attendanceRows.reduce((s, r) => s + r.total, 0);
   const overallAttendance = totalScheduled === 0 ? 0 : (totalPresent / totalScheduled) * 100;
 
-  // Previous period
+  // Previous
   const prevActual = prevSales.reduce((s, x) => s.plus(x.actualSales.toString()), new Decimal(0));
   const prevSystem = prevSales.reduce((s, x) => s.plus(x.systemSales.toString()), new Decimal(0));
   let prevStockLoss = new Decimal(0);
-  for (const st of prevStocktakes) for (const item of st.items) {
-    const v = new Decimal(item.varianceValue.toString());
-    if (v.isPositive()) prevStockLoss = prevStockLoss.plus(v);
+  if (prevStockPosition) {
+    const prevOpening = new Decimal(prevStockPosition.openingStockValue.toString());
+    const prevClosing = new Decimal(prevStockPosition.closingStockValue.toString());
+    const prevVariance = prevOpening.minus(prevClosing);
+    if (prevVariance.isPositive()) prevStockLoss = prevVariance;
   }
   const prevExcess = prevSales.reduce((s, x) => {
     const v = new Decimal(x.variance.toString());
@@ -132,7 +128,6 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
   const monthName = new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const prevMonthName = new Date(prevYear, prevMonth - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const periodRange = `${startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} — ${endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
-
   const staffCount = attendance.length;
   const avgStaff = staffCount === 0 ? 0 : Number(adjustedActual.dividedBy(staffCount).toFixed(2));
 
@@ -158,7 +153,13 @@ export default async function ReportViewPage({ searchParams }: { searchParams: {
       avgStaff,
       staffCount,
     },
-    stock: { openingValue: Number(openingStock.toFixed(2)), stockLoss: Number(stockLoss.toFixed(2)), shrinkageRate: Number(shrinkageRate.toFixed(2)), items: stockLossItems },
+    stock: {
+      openingValue: Number(openingStock.toFixed(2)),
+      closingValue: Number(closingStock.toFixed(2)),
+      stockLoss: Number(stockLoss.toFixed(2)),
+      shrinkageRate: Number(shrinkageRate.toFixed(2)),
+      items: [],
+    },
     account: { openingBalance: Number(openingDebt.toFixed(2)), unrecoveredLoss: Number(remainingLoss.toFixed(2)), calculatedClosing: Number(calculatedClosingDebt.toFixed(2)) },
     recovery: { stockLoss: Number(stockLoss.toFixed(2)), excessSales: Number(excessSales.toFixed(2)), recoveryApplied: Number(recoveryApplied.toFixed(2)), remainingLoss: Number(remainingLoss.toFixed(2)), surplus: Number(surplus.toFixed(2)), recoveryRate: Number(recoveryRate.toFixed(2)) },
     attendance: { rows: attendanceRows, overall: Number(overallAttendance.toFixed(2)) },
