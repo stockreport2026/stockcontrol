@@ -3,11 +3,7 @@ import Decimal from 'decimal.js';
 
 export const dynamic = 'force-dynamic';
 
-export default async function RecoveryPage({
-  searchParams,
-}: {
-  searchParams: { year?: string; month?: string; branchId?: string };
-}) {
+export default async function RecoveryPage({ searchParams }: { searchParams: { year?: string; month?: string; branchId?: string } }) {
   const year = parseInt(searchParams.year ?? '2026');
   const month = parseInt(searchParams.month ?? '8');
   const branchId = searchParams.branchId;
@@ -17,20 +13,25 @@ export default async function RecoveryPage({
 
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
 
-  const where = branchId ? { branchId } : {};
+  const [sales, creditSales, repayments, stocktakes, accounts] = await Promise.all([
+    prisma.staffSales.findMany({
+      where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) },
+    }),
+    prisma.creditSale.findMany({
+      where: { saleDate: { gte: startDate, lte: endDate }, ...(branchId ? { branchId } : {}) },
+    }),
+    prisma.repayment.findMany({
+      where: { paymentDate: { gte: startDate, lte: endDate }, ...(branchId ? { branchId } : {}) },
+    }),
+    prisma.stocktake.findMany({
+      where: { stocktakeDate: { gte: startDate, lte: endDate }, status: 'APPROVED', ...(branchId ? { branchId } : {}) },
+      include: { items: true },
+    }),
+    prisma.accountBalance.findMany({
+      where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) },
+    }),
+  ]);
 
-  const sales = await prisma.dailySale.findMany({
-    where: { ...where, saleDate: { gte: startDate, lte: endDate } },
-  });
-  const stocktakes = await prisma.stocktake.findMany({
-    where: { ...where, stocktakeDate: { gte: startDate, lte: endDate }, status: 'APPROVED' },
-    include: { items: true, branch: true },
-  });
-  const accounts = await prisma.accountBalance.findMany({
-    where: { ...where, periodYear: year, periodMonth: month },
-  });
-
-  // Group by branch
   const branchIds = new Set<string>();
   sales.forEach((s) => branchIds.add(s.branchId));
   stocktakes.forEach((s) => branchIds.add(s.branchId));
@@ -43,23 +44,30 @@ export default async function RecoveryPage({
     const branch = branches.find((b) => b.id === bid);
     if (!branch) continue;
 
-    const bSales = sales.filter((s) => s.branchId === bid);
-    const bStock = stocktakes.filter((s) => s.branchId === bid);
-    const bAccount = accounts.find((a) => a.branchId === bid);
+    // Per-staff adjusted variance
+    const branchSales = sales.filter((s) => s.branchId === bid);
+    const branchCredit = creditSales.filter((c) => c.branchId === bid);
+    const branchRepay = repayments.filter((r) => r.branchId === bid);
 
-    const excessSales = bSales.reduce((sum, s) => {
-      const v = new Decimal(s.variance.toString());
-      return v.isPositive() ? sum.plus(v) : sum;
+    const excessSales = branchSales.reduce((sum, s) => {
+      const staffCredit = branchCredit.filter((c) => c.staffId === s.staffId).reduce((a, c) => a.plus(c.amount.toString()), new Decimal(0));
+      const staffRepay = branchRepay.filter((r) => r.staffId === s.staffId).reduce((a, r) => a.plus(r.amount.toString()), new Decimal(0));
+      const adjSystem = new Decimal(s.systemSales.toString()).minus(staffCredit);
+      const adjActual = new Decimal(s.actualSales.toString()).minus(staffRepay);
+      const variance = adjActual.minus(adjSystem);
+      return variance.isPositive() ? sum.plus(variance) : sum;
     }, new Decimal(0));
 
+    const branchStock = stocktakes.filter((s) => s.branchId === bid);
     let stockLoss = new Decimal(0);
-    for (const st of bStock) for (const i of st.items) {
+    for (const st of branchStock) for (const i of st.items) {
       const vv = new Decimal(i.varianceValue.toString());
       if (vv.isPositive()) stockLoss = stockLoss.plus(vv);
     }
 
     const recovery = Decimal.min(excessSales, stockLoss);
     const remaining = Decimal.max(stockLoss.minus(recovery), 0);
+    const bAccount = accounts.find((a) => a.branchId === bid);
     const opening = new Decimal(bAccount?.openingBalance.toString() ?? '0');
     const closing = opening.plus(remaining);
     const recoveryRate = stockLoss.isZero() ? new Decimal(0) : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
@@ -130,7 +138,7 @@ export default async function RecoveryPage({
           <p className="text-2xl font-bold mt-1 text-green-600">KES {Number(totals.recovery.toFixed(2)).toLocaleString()}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Total Remaining Loss → Main Debt</p>
+          <p className="text-sm text-slate-500 font-medium">Unrecovered → Main Debt</p>
           <p className="text-2xl font-bold mt-1 text-red-600">KES {Number(totals.remaining.toFixed(2)).toLocaleString()}</p>
         </div>
       </div>
@@ -140,7 +148,7 @@ export default async function RecoveryPage({
           <h2 className="text-lg font-semibold text-slate-900">Recovery & Liability by Branch ({rows.length})</h2>
         </div>
         {rows.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">No recovery data for this period. Add sales and approved stocktakes first.</div>
+          <div className="p-12 text-center text-slate-500">No recovery data for this period.</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
@@ -179,9 +187,7 @@ export default async function RecoveryPage({
                 <td className="px-4 py-3 text-right">{Number(totals.excess.toFixed(2)).toLocaleString()}</td>
                 <td className="px-4 py-3 text-right">{Number(totals.loss.toFixed(2)).toLocaleString()}</td>
                 <td className="px-4 py-3 text-right">{Number(totals.recovery.toFixed(2)).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-xs">
-                  {totals.loss.isZero() ? '100' : Number(totals.recovery.dividedBy(totals.loss).times(100).toFixed(0))}%
-                </td>
+                <td className="px-4 py-3 text-right text-xs">{totals.loss.isZero() ? '100' : Number(totals.recovery.dividedBy(totals.loss).times(100).toFixed(0))}%</td>
                 <td className="px-4 py-3 text-right">{Number(totals.remaining.toFixed(2)).toLocaleString()}</td>
                 <td className="px-4 py-3 text-right">{Number(totals.opening.toFixed(2)).toLocaleString()}</td>
                 <td className="px-4 py-3 text-right">{Number(totals.closing.toFixed(2)).toLocaleString()}</td>

@@ -3,13 +3,21 @@ import { prisma } from '@/lib/db/prisma';
 
 export async function GET() {
   try {
-    const orgCount = await prisma.organization.count();
-    const branchCount = await prisma.branch.count();
-    const salesCount = await prisma.dailySale.count();
+    const [orgCount, branchCount, staffCount, salesCount] = await Promise.all([
+      prisma.organization.count(),
+      prisma.branch.count(),
+      prisma.staff.count(),
+      prisma.staffSales.count(),
+    ]);
     return NextResponse.json({
       status: 'healthy',
       database: 'connected',
-      counts: { organizations: orgCount, branches: branchCount, sales: salesCount },
+      counts: {
+        organizations: orgCount,
+        branches: branchCount,
+        staff: staffCount,
+        salesRecords: salesCount,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
