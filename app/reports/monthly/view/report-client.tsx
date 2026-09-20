@@ -200,8 +200,7 @@ export function ReportClient({ report }: { report: any }) {
                     <tr key={idx}>
                       <Td>
                         <div className="font-medium text-slate-900">{i.description}</div>
-                        <div className="text-xs text-slate-500">{i.sku}</div>
-                      </Td>
+                        </Td>
                       <Td align="right">{fmtInt(i.expected)} {i.unit}</Td>
                       <Td align="right">{fmtInt(i.actual)} {i.unit}</Td>
                       <Td align="right" color={isLoss ? C.rose : C.emerald}>

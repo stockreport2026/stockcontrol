@@ -112,7 +112,6 @@ export default async function ReportViewPage({
       openingStock = openingStock.plus(new Decimal(item.expectedQty.toString()).times(item.unitCost.toString()));
       if (!varianceVal.isZero()) {
         stockLossItems.push({
-          sku: item.stockItem.sku,
           description: item.stockItem.description,
           expected: Number(item.expectedQty.toString()),
           actual: Number(item.actualQty.toString()),

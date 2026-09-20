@@ -161,7 +161,6 @@ model Repayment {
 model StockItem {
   id             String   @id @default(cuid())
   organizationId String
-  sku            String
   description    String
   category       String?
   unit           String   @default("pcs")
@@ -171,7 +170,7 @@ model StockItem {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   transactions   StockTransaction[]
   stocktakeItems StocktakeItem[]
-  @@unique([organizationId, sku])
+  @@unique([organizationId, description])
 }
 
 model StockTransaction {
@@ -253,10 +252,6 @@ enum AttendanceStatus {
   OTHER
 }
 
-// ═══════════════════════════════════════════════════════════
-// ACCOUNT BALANCE (Main Account / Debt Position)
-// ═══════════════════════════════════════════════════════════
-
 model AccountBalance {
   id                String   @id @default(cuid())
   branchId          String
@@ -267,7 +262,6 @@ model AccountBalance {
   openingBalance    Decimal  @db.Decimal(18, 2) @default(0)
   closingBalance    Decimal  @db.Decimal(18, 2) @default(0)
   additionalInfo    String?
-  previousReport    Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
