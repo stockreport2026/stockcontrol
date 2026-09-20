@@ -9,7 +9,7 @@ const nav = [
     section: 'Operations',
     items: [
       { name: 'Sales Entry', href: '/operations/sales' },
-      { name: 'Staff Sales Summary', href: '/operations/staff-sales' },
+      { name: 'Staff Sales', href: '/operations/staff-sales' },
       { name: 'Branch Sales', href: '/operations/branch-sales' },
       { name: 'Credit Sales', href: '/operations/credit-sales' },
       { name: 'Repayments', href: '/operations/repayments' },
@@ -51,7 +51,7 @@ export function Sidebar() {
     <aside className="w-64 bg-slate-900 text-slate-100 min-h-screen flex flex-col shrink-0">
       <div className="p-5 border-b border-slate-700">
         <h1 className="text-xl font-bold">Mediocare</h1>
-        <p className="text-xs text-slate-400 mt-1">Stock Control System</p>
+        <p className="text-xs text-slate-400 mt-1">Pharmaceutical Ltd</p>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4">
@@ -59,7 +59,7 @@ export function Sidebar() {
           if ('section' in item && item.section) {
             return (
               <div key={i} className="px-3 mb-4">
-                <p className="text-xs uppercase tracking-wider text-slate-500 mb-2 px-2">{item.section}</p>
+                <p className="text-xs uppercase tracking-wider text-slate-500 mb-2 px-2 font-semibold">{item.section}</p>
                 {item.items!.map((sub) => (
                   <Link
                     key={sub.href}
