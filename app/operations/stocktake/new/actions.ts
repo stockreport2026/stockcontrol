@@ -25,12 +25,14 @@ export async function createStocktake(formData: FormData): Promise<void> {
     stocktakeDate: formData.get('stocktakeDate'),
     notes: formData.get('notes'),
   });
-
-  if (!parsed.success) {
-    throw new Error('Please fill all required fields');
-  }
+  if (!parsed.success) throw new Error('Please fill all required fields');
 
   const { branchId, stocktakeDate, notes } = parsed.data;
+
+  const existing = await prisma.stocktake.findFirst({
+    where: { branchId, stocktakeDate: new Date(stocktakeDate), status: 'DRAFT' },
+  });
+  if (existing) redirect(`/operations/stocktake/${existing.id}`);
 
   const items = await prisma.stockItem.findMany({ where: { isActive: true } });
 
@@ -41,9 +43,9 @@ export async function createStocktake(formData: FormData): Promise<void> {
         stockItemId: item.id,
         expectedQty: expected,
         actualQty: new Decimal(0),
-        varianceQty: new Decimal(0),
+        varianceQty: expected,
         unitCost: item.unitCost,
-        varianceValue: new Decimal(0),
+        varianceValue: expected.times(item.unitCost.toString()),
       };
     })
   );

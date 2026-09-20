@@ -1,29 +1,29 @@
 'use server';
 
-import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import Decimal from 'decimal.js';
 import { prisma } from '@/lib/db/prisma';
 
-const itemSchema = z.object({
-  id: z.string().min(1),
-  actualQty: z.string(),
-});
+export async function saveStocktakeCounts(formData: FormData, stocktakeId: string) {
+  const stocktake = await prisma.stocktake.findUnique({ where: { id: stocktakeId } });
+  if (!stocktake) return { success: false, message: 'Stocktake not found' };
+  if (stocktake.status === 'APPROVED') return { success: false, message: 'Stocktake is approved and locked' };
 
-export async function updateStocktakeItems(formData: FormData, stocktakeId: string) {
   const entries = Array.from(formData.entries()).filter(([k]) => k.startsWith('actual_'));
+  let saved = 0;
 
   for (const [key, value] of entries) {
     const id = key.replace('actual_', '');
     const actualStr = String(value).trim();
-    if (actualStr === '') continue;
 
-    let actual: Decimal;
-    try {
-      actual = new Decimal(actualStr);
-    } catch {
-      continue;
+    let actual = new Decimal(0);
+    if (actualStr !== '') {
+      try { actual = new Decimal(actualStr); } catch { continue; }
+      if (actual.isNegative()) continue;
     }
+
+    const notesKey = `notes_${id}`;
+    const notes = formData.get(notesKey) as string | null;
 
     const item = await prisma.stocktakeItem.findUnique({ where: { id } });
     if (!item) continue;
@@ -38,20 +38,38 @@ export async function updateStocktakeItems(formData: FormData, stocktakeId: stri
         actualQty: actual,
         varianceQty,
         varianceValue,
+        notes: notes || null,
       },
     });
+    saved++;
   }
 
   revalidatePath(`/operations/stocktake/${stocktakeId}`);
-  return { success: true, message: 'Stocktake items updated' };
+  revalidatePath('/operations/stocktake');
+  return { success: true, message: `${saved} item counts saved` };
 }
 
 export async function approveStocktake(stocktakeId: string) {
-  await prisma.stocktake.update({
+  const stocktake = await prisma.stocktake.findUnique({
     where: { id: stocktakeId },
-    data: { status: 'APPROVED' },
+    include: { items: true },
   });
+  if (!stocktake) return { success: false, message: 'Stocktake not found' };
+
+  const uncounted = stocktake.items.filter((i) => new Decimal(i.actualQty.toString()).isZero()).length;
+  if (uncounted > 0) {
+    return { success: false, message: `Cannot approve: ${uncounted} items still have 0 actual qty. Enter all counts first.` };
+  }
+
+  await prisma.stocktake.update({ where: { id: stocktakeId }, data: { status: 'APPROVED' } });
   revalidatePath(`/operations/stocktake/${stocktakeId}`);
   revalidatePath('/operations/stocktake');
-  return { success: true, message: 'Stocktake approved' };
+  return { success: true, message: 'Stocktake approved and locked' };
+}
+
+export async function reopenStocktake(stocktakeId: string) {
+  await prisma.stocktake.update({ where: { id: stocktakeId }, data: { status: 'DRAFT' } });
+  revalidatePath(`/operations/stocktake/${stocktakeId}`);
+  revalidatePath('/operations/stocktake');
+  return { success: true, message: 'Stocktake reopened for editing' };
 }
