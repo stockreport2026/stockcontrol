@@ -1,4 +1,4 @@
-import { PrismaClient, Role, StockTxType, AttendanceStatus } from '@prisma/client';
+import { PrismaClient, Role, StockTxType } from '@prisma/client';
 import Decimal from 'decimal.js';
 
 const prisma = new PrismaClient();
@@ -35,7 +35,7 @@ const PHARMA_ITEMS = [
 ];
 
 async function main() {
-  console.log('🌱 Seeding Mediocare Pharmaceutical Ltd (no staff — added manually)...');
+  console.log('🌱 Seeding Mediocare Pharmaceutical Ltd...');
 
   await prisma.attendance.deleteMany();
   await prisma.stocktakeItem.deleteMany();
@@ -44,7 +44,6 @@ async function main() {
   await prisma.stockItem.deleteMany();
   await prisma.repayment.deleteMany();
   await prisma.creditSale.deleteMany();
-  await prisma.customer.deleteMany();
   await prisma.dailySale.deleteMany();
   await prisma.staff.deleteMany();
   await prisma.accountBalance.deleteMany();
@@ -73,7 +72,6 @@ async function main() {
     ],
   });
 
-  // Stock items
   const items = await Promise.all(
     PHARMA_ITEMS.map((p) =>
       prisma.stockItem.create({
@@ -81,61 +79,8 @@ async function main() {
       })
     )
   );
-  console.log(`   ✓ ${items.length} pharmaceutical items`);
 
-  // Customers per branch
-  const customerNames = ['Acme Pharmacy','Lake Pharmacy','County Hospital','Sunrise Clinic','Care Medical','Mwangaza Health','Riverside Chemist','Union Drugstore'];
-  const customers: any[] = [];
-  for (let i = 0; i < branches.length; i++) {
-    const branch = branches[i];
-    const custCount = 1 + Math.floor(Math.random() * 2);
-    for (let j = 0; j < custCount; j++) {
-      const c = await prisma.customer.create({
-        data: {
-          organizationId: org.id, branchId: branch.id,
-          name: `${customerNames[(i + j) % customerNames.length]} ${branch.code.slice(-2)}`,
-          creditLimit: new Decimal(150000 + Math.floor(Math.random() * 350000)),
-          openingBalance: new Decimal(0),
-        },
-      });
-      customers.push(c);
-    }
-  }
-
-  // Credit sales + repayments
-  const creditData: any[] = [];
-  let invNum = 5001;
-  for (const cust of customers) {
-    const txCount = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < txCount; i++) {
-      creditData.push({
-        customerId: cust.id, branchId: cust.branchId,
-        saleDate: new Date(2026, 7, 3 + i * 5),
-        invoiceRef: `INV-${invNum++}`,
-        amount: new Decimal(10000 + Math.floor(Math.random() * 40000)),
-        status: 'OUTSTANDING',
-      });
-    }
-  }
-  await prisma.creditSale.createMany({ data: creditData });
-
-  const repayData: any[] = [];
-  let rcptNum = 8001;
-  for (const cust of customers) {
-    const custCredits = await prisma.creditSale.findMany({ where: { customerId: cust.id } });
-    const total = custCredits.reduce((s, c) => s + Number(c.amount), 0);
-    for (let i = 0; i < 2; i++) {
-      repayData.push({
-        customerId: cust.id, branchId: cust.branchId,
-        paymentDate: new Date(2026, 7, 10 + i * 6),
-        amount: new Decimal(Math.floor(total * (0.2 + Math.random() * 0.3))),
-        paymentMethod: 'CASH', receiptRef: `RCP-${rcptNum++}`,
-      });
-    }
-  }
-  await prisma.repayment.createMany({ data: repayData });
-
-  // Stock transactions per branch
+  // Stock transactions + approved stocktakes for all branches
   const stockTxs: any[] = [];
   for (const item of items) {
     for (const branch of branches) {
@@ -151,7 +96,6 @@ async function main() {
   }
   await prisma.stockTransaction.createMany({ data: stockTxs });
 
-  // Approved stocktakes for all branches
   for (const branch of branches) {
     const st = await prisma.stocktake.create({
       data: { branchId: branch.id, stocktakeDate: new Date(2026, 7, 26), status: 'APPROVED', notes: `Month-end physical count — August 2026` },
@@ -169,20 +113,20 @@ async function main() {
     }
   }
 
-  // Account balances for all branches (August 2026)
+  // Account balances
   for (const branch of branches) {
     await prisma.accountBalance.create({
       data: {
         branchId: branch.id, periodYear: 2026, periodMonth: 8,
-        periodStartDate: new Date(2026, 7, 1), periodEndDate: new Date(2026, 7, 26),
+        periodStartDate: new Date(2026, 7, 1), periodEndDate: new Date(2026, 7, 31),
         openingBalance: new Decimal(50000 + Math.floor(Math.random() * 150000)),
         closingBalance: new Decimal(0),
       },
     });
   }
 
-  console.log(`✅ Mediocare seed complete (${branches.length} branches, ${items.length} items, ${customers.length} customers)`);
-  console.log(`📌 Staff and daily sales are NOT seeded — add them via the Staff Management page.`);
+  console.log(`✅ Mediocare seed complete (${branches.length} branches, ${items.length} items)`);
+  console.log(`📌 Staff, daily sales, credit sales, repayments, and attendance are NOT seeded.`);
 }
 
 main()

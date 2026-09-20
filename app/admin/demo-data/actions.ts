@@ -1,5 +1,4 @@
 'use server';
-
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import Decimal from 'decimal.js';
@@ -52,38 +51,39 @@ export async function generateDemoData(formData: FormData) {
   let created = 0;
   for (const staff of newStaff) {
     for (let day = 1; day <= daysToGenerate; day++) {
-      const dow = new Date(year, month - 1, day).getDay();
+      const dateObj = new Date(year, month - 1, day);
+      const dow = dateObj.getDay();
       if (dow === 0) continue;
       const base = 8000 + Math.floor(Math.random() * 12000);
-      const system = base;
       const variance = Math.floor(Math.random() * 2600 - 1200);
-      const actual = system + variance;
-      const dateObj = new Date(year, month - 1, day);
+      const actual = base + variance;
       try {
         await prisma.dailySale.upsert({
           where: { branchId_staffId_saleDate: { branchId: branch.id, staffId: staff.id, saleDate: dateObj } },
-          create: { branchId: branch.id, staffId: staff.id, saleDate: dateObj, actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance), status: 'APPROVED' },
-          update: { actualSales: new Decimal(actual), systemSales: new Decimal(system), variance: new Decimal(variance) },
+          create: { branchId: branch.id, staffId: staff.id, saleDate: dateObj, actualSales: new Decimal(actual), systemSales: new Decimal(base), variance: new Decimal(variance), status: 'APPROVED' },
+          update: { actualSales: new Decimal(actual), systemSales: new Decimal(base), variance: new Decimal(variance) },
         });
         created++;
       } catch {}
     }
   }
 
-  // Create attendance
+  // Attendance for the month (one row per staff)
   for (const staff of newStaff) {
-    for (let day = 1; day <= daysToGenerate; day++) {
-      const dateObj = new Date(year, month - 1, day);
-      const dow = dateObj.getDay();
-      const status = dow === 0 ? 'OFF' : 'PRESENT';
-      try {
-        await prisma.attendance.upsert({
-          where: { staffId_attendanceDate: { staffId: staff.id, attendanceDate: dateObj } },
-          create: { staffId: staff.id, branchId: branch.id, attendanceDate: dateObj, status },
-          update: { status },
-        });
-      } catch {}
-    }
+    try {
+      await prisma.attendance.upsert({
+        where: { staffId_periodYear_periodMonth: { staffId: staff.id, periodYear: year, periodMonth: month } },
+        create: {
+          staffId: staff.id,
+          branchId: branch.id,
+          periodYear: year,
+          periodMonth: month,
+          daysWorked: daysToGenerate,
+          leaveDays: 0,
+        },
+        update: { daysWorked: daysToGenerate },
+      });
+    } catch {}
   }
 
   // Account balance

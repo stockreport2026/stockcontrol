@@ -17,7 +17,6 @@ model Organization {
   branches   Branch[]
   users      User[]
   stockItems StockItem[]
-  customers  Customer[]
 }
 
 model Branch {
@@ -32,7 +31,6 @@ model Branch {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   staff          Staff[]
   dailySales     DailySale[]
-  customers      Customer[]
   creditSales    CreditSale[]
   repayments     Repayment[]
   stockTxs       StockTransaction[]
@@ -103,59 +101,59 @@ enum RecordStatus {
   REJECTED
 }
 
-model Customer {
-  id             String   @id @default(cuid())
-  organizationId String
-  branchId       String
-  name           String
-  phone          String?
-  email          String?
-  creditLimit    Decimal  @db.Decimal(18, 2) @default(0)
-  openingBalance Decimal  @db.Decimal(18, 2) @default(0)
-  status         String   @default("ACTIVE")
-  createdAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branch         Branch   @relation(fields: [branchId], references: [id])
-  creditSales    CreditSale[]
-  repayments     Repayment[]
-  @@index([branchId])
-}
+// ─── SIMPLIFIED CREDIT SALES ───────────────────────────────
+// Reduces system sales for the staff and branch.
+// Just: customer name, date, amount, staff, branch.
 
 model CreditSale {
-  id         String   @id @default(cuid())
-  customerId String
-  branchId   String
-  staffId    String?
-  saleDate   DateTime
-  invoiceRef String
-  amount     Decimal  @db.Decimal(18, 2)
-  dueDate    DateTime?
-  status     String   @default("OUTSTANDING")
-  notes      String?
-  createdAt  DateTime @default(now())
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  branch     Branch   @relation(fields: [branchId], references: [id])
-  staff      Staff?   @relation(fields: [staffId], references: [id])
-  @@unique([customerId, invoiceRef])
+  id           String   @id @default(cuid())
+  branchId     String
+  staffId      String
+  customerName String
+  saleDate     DateTime
+  amount       Decimal  @db.Decimal(18, 2)
+  createdAt    DateTime @default(now())
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  staff        Staff    @relation(fields: [staffId], references: [id])
   @@index([branchId, saleDate])
+  @@index([staffId, saleDate])
 }
 
+// ─── SIMPLIFIED REPAYMENTS ─────────────────────────────────
+// Reduces actual sales for the staff and branch.
+
 model Repayment {
-  id            String   @id @default(cuid())
-  customerId    String
-  branchId      String
-  staffId       String?
-  paymentDate   DateTime
-  amount        Decimal  @db.Decimal(18, 2)
-  paymentMethod String   @default("CASH")
-  receiptRef    String
-  notes         String?
-  createdAt     DateTime @default(now())
-  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  branch        Branch   @relation(fields: [branchId], references: [id])
-  staff         Staff?   @relation(fields: [staffId], references: [id])
-  @@unique([receiptRef])
+  id          String   @id @default(cuid())
+  branchId    String
+  staffId     String
+  paymentDate DateTime
+  amount      Decimal  @db.Decimal(18, 2)
+  notes       String?
+  createdAt   DateTime @default(now())
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  staff       Staff    @relation(fields: [staffId], references: [id])
   @@index([branchId, paymentDate])
+  @@index([staffId, paymentDate])
+}
+
+// ─── SIMPLIFIED ATTENDANCE ─────────────────────────────────
+// One row per staff per month — just numbers.
+
+model Attendance {
+  id           String   @id @default(cuid())
+  staffId      String
+  branchId     String
+  periodYear   Int
+  periodMonth  Int
+  daysWorked   Int      @default(0)
+  leaveDays    Int      @default(0)
+  comment      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  branch       Branch   @relation(fields: [branchId], references: [id])
+  @@unique([staffId, periodYear, periodMonth])
+  @@index([branchId, periodYear, periodMonth])
 }
 
 model StockItem {
@@ -226,30 +224,6 @@ model StocktakeItem {
   stocktake     Stocktake @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
   stockItem     StockItem @relation(fields: [stockItemId], references: [id])
   @@unique([stocktakeId, stockItemId])
-}
-
-model Attendance {
-  id             String   @id @default(cuid())
-  staffId        String
-  branchId       String
-  attendanceDate DateTime
-  status         AttendanceStatus
-  comment        String?
-  createdAt      DateTime @default(now())
-  staff          Staff    @relation(fields: [staffId], references: [id])
-  branch         Branch   @relation(fields: [branchId], references: [id])
-  @@unique([staffId, attendanceDate])
-  @@index([branchId, attendanceDate])
-}
-
-enum AttendanceStatus {
-  PRESENT
-  OFF
-  ANNUAL_LEAVE
-  SICK_LEAVE
-  ABSENT
-  PUBLIC_HOLIDAY
-  OTHER
 }
 
 model AccountBalance {

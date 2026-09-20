@@ -5,10 +5,14 @@ import { RepaymentForm } from './form';
 export const dynamic = 'force-dynamic';
 
 export default async function RepaymentsPage() {
-  const [customers, branches, repayments] = await Promise.all([
-    prisma.customer.findMany({ orderBy: { name: 'asc' } }),
+  const [branches, staff, repayments] = await Promise.all([
     prisma.branch.findMany({ orderBy: { name: 'asc' } }),
-    prisma.repayment.findMany({ include: { customer: true, branch: true }, orderBy: { paymentDate: 'desc' }, take: 30 }),
+    prisma.staff.findMany({ orderBy: { firstName: 'asc' } }),
+    prisma.repayment.findMany({
+      include: { staff: true, branch: true },
+      orderBy: { paymentDate: 'desc' },
+      take: 50,
+    }),
   ]);
 
   const totalRepay = repayments.reduce((s, r) => s.plus(r.amount.toString()), new Decimal(0));
@@ -17,28 +21,30 @@ export default async function RepaymentsPage() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Repayments</h1>
-        <p className="text-slate-500 mt-1">Record customer repayments against credit sales</p>
+        <p className="text-slate-500 mt-1">Customer repayments received — reduces actual sales for the staff and branch</p>
       </div>
 
       <div className="grid grid-cols-3 gap-5 mb-6">
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Total Customers</p>
-          <p className="text-2xl font-bold mt-1 text-slate-900">{customers.length}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Repayments Logged</p>
+          <p className="text-sm text-slate-500 font-medium">Total Records</p>
           <p className="text-2xl font-bold mt-1 text-slate-900">{repayments.length}</p>
         </div>
         <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Recent Repayments (KES)</p>
-          <p className="text-2xl font-bold mt-1 text-emerald-600">{Number(totalRepay.toFixed(2)).toLocaleString()}</p>
+          <p className="text-sm text-slate-500 font-medium">Total Repaid</p>
+          <p className="text-2xl font-bold mt-1 text-emerald-600">KES {Number(totalRepay.toFixed(2)).toLocaleString()}</p>
+        </div>
+        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
+          <p className="text-sm text-slate-500 font-medium">Effect on Report</p>
+          <p className="text-sm text-slate-600 mt-2">Subtracted from actual sales</p>
         </div>
       </div>
 
-      <div className="mb-6"><RepaymentForm customers={customers} branches={branches} /></div>
+      <div className="mb-6"><RepaymentForm branches={branches} staff={staff} /></div>
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200"><h2 className="text-lg font-semibold text-slate-900">Recent Repayments ({repayments.length})</h2></div>
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900">Repayment Log ({repayments.length})</h2>
+        </div>
         {repayments.length === 0 ? (
           <div className="p-12 text-center text-slate-500">No repayments recorded yet.</div>
         ) : (
@@ -46,10 +52,9 @@ export default async function RepaymentsPage() {
             <thead className="bg-slate-50">
               <tr>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Date</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Receipt</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Customer</th>
+                <th className="text-left px-6 py-3 font-medium text-slate-600">Staff (Individual)</th>
                 <th className="text-left px-6 py-3 font-medium text-slate-600">Branch</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Method</th>
+                <th className="text-left px-6 py-3 font-medium text-slate-600">Notes</th>
                 <th className="text-right px-6 py-3 font-medium text-slate-600">Amount (KES)</th>
               </tr>
             </thead>
@@ -57,11 +62,10 @@ export default async function RepaymentsPage() {
               {repayments.map((r) => (
                 <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="px-6 py-3 text-slate-700">{new Date(r.paymentDate).toLocaleDateString('en-GB')}</td>
-                  <td className="px-6 py-3 text-slate-600 font-mono text-xs">{r.receiptRef}</td>
-                  <td className="px-6 py-3 text-slate-900 font-medium">{r.customer.name}</td>
+                  <td className="px-6 py-3 font-medium text-slate-900">{r.staff.firstName} {r.staff.lastName}</td>
                   <td className="px-6 py-3 text-slate-600">{r.branch.name}</td>
-                  <td className="px-6 py-3 text-slate-600">{r.paymentMethod}</td>
-                  <td className="px-6 py-3 text-right text-emerald-600 font-medium">{Number(r.amount).toLocaleString()}</td>
+                  <td className="px-6 py-3 text-slate-500 text-xs">{r.notes ?? '—'}</td>
+                  <td className="px-6 py-3 text-right font-medium text-emerald-600">{Number(r.amount).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

@@ -2,100 +2,75 @@
 import { useState, useTransition } from 'react';
 import { saveAttendance } from './actions';
 
-type StaffRow = { id: string; name: string; employeeCode: string; branchName: string };
-
-const STATUSES = [
-  { value: '', label: '—' },
-  { value: 'PRESENT', label: 'P' },
-  { value: 'OFF', label: 'O' },
-  { value: 'ANNUAL_LEAVE', label: 'A' },
-  { value: 'SICK_LEAVE', label: 'S' },
-  { value: 'ABSENT', label: 'X' },
-  { value: 'PUBLIC_HOLIDAY', label: 'H' },
-];
-
-export function AttendanceGrid({
-  staff,
-  daysInMonth,
-  year,
-  month,
-}: {
-  staff: StaffRow[];
-  daysInMonth: number;
-  year: number;
-  month: number;
-}) {
+export function AttendanceForm({ branches, staff }: { branches: any[]; staff: any[] }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [branchId, setBranchId] = useState(branches[0]?.id ?? '');
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() === 0 ? 12 : now.getMonth());
+
+  const staffForBranch = staff.filter((s) => s.branchId === branchId);
 
   function onSubmit(formData: FormData) {
     setMsg(null);
     startTransition(async () => {
       const res = await saveAttendance(formData);
       setMsg({ text: res.message, ok: res.success });
+      if (res.success) (document.getElementById('att-form') as HTMLFormElement)?.reset();
     });
   }
 
-  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
   return (
-    <form action={onSubmit}>
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Daily Attendance Grid</h2>
-          <p className="text-xs text-slate-500">P=Present · O=Off · A=Annual · S=Sick · X=Absent · H=Holiday</p>
+    <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
+      <h2 className="text-lg font-semibold text-slate-900 mb-4">Record Attendance</h2>
+      <form id="att-form" action={onSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div className="md:col-span-2">
+          <label className="block text-xs font-medium text-slate-700 mb-1">Branch</label>
+          <select name="branchId" value={branchId} onChange={(e) => setBranchId(e.target.value)} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="text-xs border-collapse">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left px-3 py-2 font-medium text-slate-600 sticky left-0 bg-slate-50 z-10 min-w-[180px]">Staff</th>
-                {days.map((d) => (
-                  <th key={d} className="px-1 py-2 font-medium text-slate-600 text-center min-w-[44px]">{d}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {staff.length === 0 ? (
-                <tr><td colSpan={daysInMonth + 1} className="px-4 py-8 text-center text-slate-500">
-                  No staff added yet. Go to Admin → Staff to add staff first.
-                </td></tr>
-              ) : (
-                staff.map((s) => (
-                  <tr key={s.id} className="border-t border-slate-100">
-                    <td className="px-3 py-1.5 sticky left-0 bg-white border-r border-slate-100">
-                      <div className="font-medium text-slate-900 text-xs">{s.name}</div>
-                      <div className="text-[10px] text-slate-400">{s.branchName}</div>
-                    </td>
-                    {days.map((d) => {
-                      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                      return (
-                        <td key={d} className="px-0.5 py-0.5 text-center">
-                          <select
-                            name={`att_${s.id}__${dateStr}`}
-                            className="w-10 text-center border border-slate-200 rounded text-xs px-0 py-1 bg-white"
-                          >
-                            {STATUSES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
-                          </select>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="md:col-span-2">
+          <label className="block text-xs font-medium text-slate-700 mb-1">Staff</label>
+          <select name="staffId" required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+            {staffForBranch.length === 0
+              ? <option value="">— No staff —</option>
+              : staffForBranch.map((s) => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+          </select>
         </div>
-
-        <div className="px-6 py-4 border-t border-slate-200 flex items-center gap-4 bg-slate-50">
-          <button type="submit" disabled={isPending || staff.length === 0}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Year</label>
+          <input type="number" name="periodYear" value={year} onChange={(e) => setYear(parseInt(e.target.value) || year)} required className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Month</label>
+          <select name="periodMonth" value={month} onChange={(e) => setMonth(parseInt(e.target.value))} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'short' })}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Days Worked</label>
+          <input type="number" name="daysWorked" required min={0} max={31} defaultValue={26} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Leave Days</label>
+          <input type="number" name="leaveDays" required min={0} max={31} defaultValue={0} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div className="md:col-span-4">
+          <label className="block text-xs font-medium text-slate-700 mb-1">Comment (optional)</label>
+          <input type="text" name="comment" className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div className="md:col-span-6 flex items-center gap-4 pt-2">
+          <button type="submit" disabled={isPending || staffForBranch.length === 0}
             className="bg-slate-900 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-slate-700 disabled:opacity-50">
             {isPending ? 'Saving...' : 'Save Attendance'}
           </button>
           {msg && <span className={`text-sm ${msg.ok ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</span>}
         </div>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }
