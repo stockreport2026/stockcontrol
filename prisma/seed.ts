@@ -55,21 +55,30 @@ async function main() {
     prisma.staff.create({ data: { organizationId: org.id, branchId: mombasa.id, firstName: 'David', lastName: 'Mwangi', employeeCode: 'MSA-001' } }),
   ]);
 
-  // Daily Sales for August 2026
   const allStaff = [
     ...staffKisumu.map((s) => ({ staff: s, branchId: kisumu.id })),
     ...staffNairobi.map((s) => ({ staff: s, branchId: nairobi.id })),
     ...staffMombasa.map((s) => ({ staff: s, branchId: mombasa.id })),
   ];
+
+  // Daily Sales — realistic positive variance (excess sales) for Kisumu
   const saleData: any[] = [];
   for (const { staff, branchId } of allStaff) {
     for (let day = 1; day <= 26; day++) {
-      const actual = 8000 + Math.floor(Math.random() * 15000);
-      const system = actual + Math.floor(Math.random() * 3000 - 1500);
+      // Skip Sundays (rest days) — day 3, 10, 17, 24
+      if (day % 7 === 3) continue;
+
+      const base = 12000 + Math.floor(Math.random() * 8000);
+      const system = base;
+      // Positive variance bias for some staff to create excess sales
+      const varianceBias = branchId === kisumu.id ? 400 : 0;
+      const variance = Math.floor(Math.random() * 2400 - 1000) + varianceBias;
+      const actual = system + variance;
+
       saleData.push({
         branchId, staffId: staff.id, saleDate: new Date(2026, 7, day),
         actualSales: new Decimal(actual), systemSales: new Decimal(system),
-        variance: new Decimal(actual - system), status: 'APPROVED' as const,
+        variance: new Decimal(variance), status: 'APPROVED' as const,
       });
     }
   }
@@ -94,7 +103,7 @@ async function main() {
       const amount = 15000 + Math.floor(Math.random() * 50000);
       creditData.push({
         customerId: cust.id, branchId: cust.branchId,
-        saleDate: new Date(2026, 7, 3 + i * 7),
+        saleDate: new Date(2026, 7, 3 + i * 5),
         invoiceRef: `INV-${invoiceNum++}`,
         amount: new Decimal(amount), status: 'OUTSTANDING',
       });
@@ -102,18 +111,18 @@ async function main() {
   }
   await prisma.creditSale.createMany({ data: creditData });
 
-  // Repayments
+  // Repayments (~60% of credit paid back)
   const repayments: any[] = [];
   let receiptNum = 5001;
   for (const cust of customers) {
     const custCredits = await prisma.creditSale.findMany({ where: { customerId: cust.id } });
     const totalCredit = custCredits.reduce((s, c) => s + Number(c.amount), 0);
-    const repayCount = 1 + Math.floor(Math.random() * 2);
+    const repayCount = 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < repayCount; i++) {
-      const amount = Math.floor(totalCredit * (0.3 + Math.random() * 0.4) / repayCount);
+      const amount = Math.floor(totalCredit * (0.15 + Math.random() * 0.2));
       repayments.push({
         customerId: cust.id, branchId: cust.branchId,
-        paymentDate: new Date(2026, 7, 10 + i * 7),
+        paymentDate: new Date(2026, 7, 8 + i * 6),
         amount: new Decimal(amount), paymentMethod: 'CASH',
         receiptRef: `RCP-${receiptNum++}`,
       });
@@ -131,12 +140,16 @@ async function main() {
     prisma.stockItem.create({ data: { organizationId: org.id, sku: 'SKU-006', description: 'Detergent 1kg', category: 'Household', unit: 'pkt', unitCost: new Decimal(280) } }),
   ]);
 
-  // Stock transactions (opening + purchases + sales)
+  // Stock transactions
   const stockTxs: any[] = [];
+  const openingQtyByBranch: Record<string, Record<string, number>> = {};
+
   for (const item of items) {
-    // Opening stock for each branch
+    openingQtyByBranch[item.id] = {};
     for (const branch of [kisumu, nairobi, mombasa]) {
-      const openQty = 200 + Math.floor(Math.random() * 300);
+      const openQty = 300 + Math.floor(Math.random() * 200);
+      openingQtyByBranch[item.id][branch.id] = openQty;
+
       stockTxs.push({
         stockItemId: item.id, branchId: branch.id,
         transactionDate: new Date(2026, 6, 31),
@@ -146,7 +159,6 @@ async function main() {
         value: new Decimal(openQty).times(item.unitCost.toString()),
       });
 
-      // Purchases
       for (let w = 0; w < 2; w++) {
         const qty = 50 + Math.floor(Math.random() * 100);
         stockTxs.push({
@@ -159,7 +171,6 @@ async function main() {
         });
       }
 
-      // Sales/issues
       const soldQty = 80 + Math.floor(Math.random() * 120);
       stockTxs.push({
         stockItemId: item.id, branchId: branch.id,
@@ -173,12 +184,58 @@ async function main() {
   }
   await prisma.stockTransaction.createMany({ data: stockTxs });
 
-  // Attendance for August 2026
+  // Approved Stocktake for Kisumu — with realistic loss (~2-3% shrinkage)
+  const kisumuStocktake = await prisma.stocktake.create({
+    data: {
+      branchId: kisumu.id,
+      stocktakeDate: new Date(2026, 7, 26),
+      status: 'APPROVED',
+      notes: 'Month-end physical count — August 2026',
+    },
+  });
+
+  for (const item of items) {
+    // Expected qty = opening + purchases - sales for Kisumu
+    const itemTxs = await prisma.stockTransaction.findMany({
+      where: { stockItemId: item.id, branchId: kisumu.id },
+    });
+    const expected = itemTxs.reduce((s, t) => s + Number(t.quantity), 0);
+
+    // Simulate ~2-3% shrink (physical is less than expected)
+    const shrinkPct = 0.02 + Math.random() * 0.015;
+    const actual = Math.max(0, Math.round(expected * (1 - shrinkPct)));
+    const varianceQty = expected - actual;
+    const varianceValue = varianceQty * Number(item.unitCost);
+
+    await prisma.stocktakeItem.create({
+      data: {
+        stocktakeId: kisumuStocktake.id,
+        stockItemId: item.id,
+        expectedQty: new Decimal(expected),
+        actualQty: new Decimal(actual),
+        varianceQty: new Decimal(varianceQty),
+        unitCost: item.unitCost,
+        varianceValue: new Decimal(varianceValue),
+      },
+    });
+  }
+
+  // Realistic Attendance — ~90% present
   const attendanceData: any[] = [];
-  const statusPool = ['PRESENT','PRESENT','PRESENT','PRESENT','PRESENT','PRESENT','OFF','OFF','OFF','ABSENT','SICK_LEAVE'] as const;
   for (const { staff, branchId } of allStaff) {
     for (let day = 1; day <= 26; day++) {
-      const status = statusPool[Math.floor(Math.random() * statusPool.length)] as AttendanceStatus;
+      const dow = new Date(2026, 7, day).getDay(); // 0=Sun
+      let status: AttendanceStatus;
+      if (dow === 0) {
+        status = 'OFF';
+      } else {
+        const r = Math.random();
+        if (r < 0.90) status = 'PRESENT';
+        else if (r < 0.94) status = 'OFF';
+        else if (r < 0.97) status = 'ANNUAL_LEAVE';
+        else if (r < 0.99) status = 'SICK_LEAVE';
+        else status = 'ABSENT';
+      }
       attendanceData.push({
         staffId: staff.id, branchId,
         attendanceDate: new Date(2026, 7, day),
@@ -188,7 +245,7 @@ async function main() {
   }
   await prisma.attendance.createMany({ data: attendanceData });
 
-  console.log(`✅ Seeded: ${allStaff.length} staff, ${saleData.length} sales, ${creditData.length} credit sales, ${repayments.length} repayments, ${stockTxs.length} stock tx, ${attendanceData.length} attendance records`);
+  console.log(`✅ Seeded: ${allStaff.length} staff, ${saleData.length} sales, ${creditData.length} credit, ${repayments.length} repayments, ${stockTxs.length} stock tx, 1 stocktake, ${attendanceData.length} attendance`);
 }
 
 main()

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
+  ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine, LabelList,
 } from 'recharts';
 
 const fmt = (n: number) =>
@@ -13,12 +13,12 @@ const fmtInt = (n: number) =>
   n.toLocaleString('en-KE', { maximumFractionDigits: 0 });
 
 const shortFmt = (n: number) => {
-  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (Math.abs(n) >= 1_000) return (n / 1_000).toFixed(0) + 'K';
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (abs >= 1_000) return (n / 1_000).toFixed(0) + 'K';
   return n.toFixed(0);
 };
 
-// Professional palette
 const C = {
   navy: '#0f172a',
   slate: '#64748b',
@@ -32,15 +32,16 @@ const C = {
   grid: '#e2e8f0',
 };
 
-const chartMargins = { top: 10, right: 20, left: 10, bottom: 5 };
-
 const tooltipStyle = {
   backgroundColor: '#ffffff',
   border: '1px solid #e2e8f0',
-  borderRadius: '6px',
+  borderRadius: '8px',
   fontSize: '12px',
-  boxShadow: '0 4px 12px rgba(15,23,42,0.08)',
+  boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
+  padding: '8px 12px',
 };
+
+const axisTick = { fontSize: 11, fill: '#64748b', fontWeight: 500 };
 
 export function ReportClient({ report }: { report: any }) {
   const { sales, stock, credit, recovery, attendance, charts } = report;
@@ -52,21 +53,22 @@ export function ReportClient({ report }: { report: any }) {
     { name: 'Remaining Loss', value: recovery.remainingLoss, fill: C.rose },
   ].filter((d) => d.value > 0);
 
+  const avgActualLine = sales.avgDaily;
+
   return (
     <div className="report-root">
       <style jsx global>{`
         @media print {
-          @page { size: A4; margin: 14mm 12mm; }
+          @page { size: A4; margin: 12mm 10mm; }
           body { background: #fff !important; }
           .print\\:hidden { display: none !important; }
-          .report-root { font-size: 11px; }
+          .report-root { font-size: 10px; }
           .report-section { page-break-inside: avoid; }
-          .page-break { page-break-before: always; }
           .no-print { display: none !important; }
+          .recharts-wrapper { page-break-inside: avoid; }
         }
       `}</style>
 
-      {/* Toolbar */}
       <div className="mb-6 print:hidden flex items-center justify-between">
         <Link href="/reports/monthly" className="text-sm text-slate-500 hover:text-slate-900">
           ← Back to Reports
@@ -80,7 +82,8 @@ export function ReportClient({ report }: { report: any }) {
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm print:border-0 print:shadow-none">
-        {/* ═══════════ COVER HEADER ═══════════ */}
+
+        {/* ═════════ COVER HEADER ═════════ */}
         <div className="border-b-4 border-slate-900 px-10 pt-10 pb-6">
           <div className="flex items-start justify-between">
             <div>
@@ -93,9 +96,7 @@ export function ReportClient({ report }: { report: any }) {
               <h1 className="text-3xl font-bold text-slate-900 tracking-tight mt-3">
                 STOCK AND FINANCIAL REPORT
               </h1>
-              <p className="text-sm text-slate-500 mt-1">
-                Management Reconciliation Report
-              </p>
+              <p className="text-sm text-slate-500 mt-1">Management Reconciliation Report</p>
             </div>
             <div className="text-right">
               <p className="text-xs uppercase tracking-widest text-slate-400">Period</p>
@@ -112,7 +113,7 @@ export function ReportClient({ report }: { report: any }) {
           </div>
         </div>
 
-        {/* ═══════════ 1. EXECUTIVE SUMMARY ═══════════ */}
+        {/* 01 EXECUTIVE SUMMARY */}
         <Section num="01" title="Executive Summary">
           <p className="text-sm text-slate-700 leading-relaxed mb-6">
             This report presents the financial performance, stock position, and staff accountability for{' '}
@@ -122,32 +123,15 @@ export function ReportClient({ report }: { report: any }) {
             derived directly from recorded operational data.
           </p>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <KpiCard label="Actual Sales" value={fmt(sales.actual)} prefix="KES" />
             <KpiCard label="System Sales" value={fmt(sales.system)} prefix="KES" />
-            <KpiCard
-              label="Sales Variance"
-              value={fmt(sales.variance)}
-              prefix="KES"
-              accent={varianceColor}
-              delta={`${sales.variancePct.toFixed(2)}%`}
-              deltaColor={varianceColor}
-            />
+            <KpiCard label="Sales Variance" value={fmt(sales.variance)} prefix="KES" accent={varianceColor} delta={`${sales.variancePct.toFixed(2)}%`} deltaColor={varianceColor} />
             <KpiCard label="Selling Days" value={String(sales.sellingDays)} />
-            <KpiCard
-              label="Stock Loss"
-              value={fmt(stock.stockLoss)}
-              prefix="KES"
-              accent={stock.stockLoss > 0 ? C.rose : C.emerald}
-            />
-            <KpiCard label="Shrinkage Rate" value={`${stock.shrinkageRate.toFixed(2)}%`} />
+            <KpiCard label="Stock Loss" value={fmt(stock.stockLoss)} prefix="KES" accent={stock.stockLoss > 0 ? C.rose : C.emerald} />
+            <KpiCard label="Shrinkage Rate" value={`${stock.shrinkageRate.toFixed(2)}%`} accent={stock.shrinkageRate > 5 ? C.rose : C.emerald} />
             <KpiCard label="Credit Sales" value={fmt(credit.totalCredit)} prefix="KES" />
-            <KpiCard
-              label="Outstanding Credit"
-              value={fmt(credit.outstanding)}
-              prefix="KES"
-              accent={credit.outstanding > 0 ? C.amber : C.emerald}
-            />
+            <KpiCard label="Outstanding Credit" value={fmt(credit.outstanding)} prefix="KES" accent={credit.outstanding > 0 ? C.amber : C.emerald} />
           </div>
 
           <HighlightRow
@@ -155,26 +139,24 @@ export function ReportClient({ report }: { report: any }) {
               { label: 'Top Performer', value: charts.topPerformer?.name ?? '—', sub: charts.topPerformer ? `+KES ${fmt(charts.topPerformer.variance)}` : '', color: C.emerald },
               { label: 'Bottom Performer', value: charts.bottomPerformer?.name ?? '—', sub: charts.bottomPerformer ? `KES ${fmt(charts.bottomPerformer.variance)}` : '', color: charts.bottomPerformer?.variance < 0 ? C.rose : C.slate },
               { label: 'Avg Sales / Staff', value: `KES ${fmt(sales.avgStaff)}`, sub: `${sales.staffCount} staff`, color: C.indigo },
-              { label: 'Attendance', value: `${attendance.overall.toFixed(1)}%`, sub: `${totalPresentOf(attendance)} present days`, color: attendance.overall >= 90 ? C.emerald : C.amber },
+              { label: 'Attendance Rate', value: `${attendance.overall.toFixed(1)}%`, sub: `${attendance.rows.length} staff tracked`, color: attendance.overall >= 90 ? C.emerald : C.amber },
             ]}
           />
         </Section>
 
-        {/* ═══════════ 2. STOCK ANALYSIS ═══════════ */}
+        {/* 02 STOCK ANALYSIS */}
         <Section num="02" title="Stock Analysis">
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Stock Position Summary</h3>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em] mb-3">Stock Position Summary</h3>
 
           <div className="grid grid-cols-3 gap-4 mb-6">
             <MiniStat label="Opening Stock Value" value={`KES ${fmt(stock.openingValue)}`} />
             <MiniStat label="Stock Loss" value={`KES ${fmt(stock.stockLoss)}`} color={stock.stockLoss > 0 ? C.rose : C.emerald} />
-            <MiniStat label="Shrinkage Rate" value={`${stock.shrinkageRate.toFixed(2)}%`} />
+            <MiniStat label="Shrinkage Rate" value={`${stock.shrinkageRate.toFixed(2)}%`} color={stock.shrinkageRate > 5 ? C.rose : C.emerald} />
           </div>
 
           {stock.items.length > 0 && (
             <>
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3 mt-6">
-                Stock Variance Detail
-              </h3>
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em] mb-3 mt-6">Stock Variance Detail</h3>
               <Table>
                 <thead>
                   <tr>
@@ -210,14 +192,14 @@ export function ReportClient({ report }: { report: any }) {
             </>
           )}
 
-          <p className="text-sm text-slate-700 mt-4">
+          <NarrativeBlock color={stock.stockLoss > 0 ? C.rose : C.emerald}>
             {stock.stockLoss === 0
               ? 'No stock loss was recorded for the reporting period.'
               : `A stock loss of KES ${fmt(stock.stockLoss)} was recorded, representing a shrinkage rate of ${stock.shrinkageRate.toFixed(2)}% against opening stock.`}
-          </p>
+          </NarrativeBlock>
         </Section>
 
-        {/* ═══════════ 3. SALES ANALYSIS ═══════════ */}
+        {/* 03 SALES ANALYSIS */}
         <Section num="03" title="Sales Analysis">
           <Table>
             <thead>
@@ -249,54 +231,101 @@ export function ReportClient({ report }: { report: any }) {
               : 'Actual sales matched system sales for the reporting period.'}
           </NarrativeBlock>
 
-          {/* Chart 1: Daily Trend */}
+          {/* Daily Trend Chart — Enhanced */}
           {charts.dailyTrend.length > 0 && (
-            <div className="mt-6 report-section">
-              <ChartTitle>Daily Sales Trend</ChartTitle>
-              <div className="h-72 bg-slate-50/50 border border-slate-200 rounded-lg p-3">
+            <div className="mt-8 report-section">
+              <ChartTitle subtitle={`${sales.sellingDays} selling days · Avg KES ${fmt(avgActualLine)}/day`}>
+                Daily Sales Trend
+              </ChartTitle>
+              <div className="h-80 bg-gradient-to-b from-slate-50 to-white border border-slate-200 rounded-lg p-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={charts.dailyTrend} margin={chartMargins}>
-                    <defs>
-                      <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={C.navy} stopOpacity={0.15} />
-                        <stop offset="95%" stopColor={C.navy} stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="systemGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={C.slate} stopOpacity={0.12} />
-                        <stop offset="95%" stopColor={C.slate} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
-                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: C.grid }} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={shortFmt} />
+                  <LineChart data={charts.dailyTrend} margin={{ top: 20, right: 30, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="4 4" stroke={C.grid} vertical={false} />
+                    <XAxis
+                      dataKey="day"
+                      tick={axisTick}
+                      axisLine={{ stroke: C.slateLight }}
+                      tickLine={false}
+                      label={{ value: 'Day of Month', position: 'insideBottom', offset: -2, style: { fontSize: 11, fill: '#94a3b8' } }}
+                    />
+                    <YAxis
+                      tick={axisTick}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={shortFmt}
+                      label={{ value: 'Sales (KES)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#94a3b8' } }}
+                    />
                     <Tooltip
                       contentStyle={tooltipStyle}
                       formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]}
                       labelFormatter={(l) => `Day ${l}`}
                     />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="line" />
-                    <Area type="monotone" dataKey="system" stroke={C.slate} strokeWidth={2} strokeDasharray="4 4" fill="url(#systemGrad)" name="System" />
-                    <Area type="monotone" dataKey="actual" stroke={C.navy} strokeWidth={2.5} fill="url(#actualGrad)" name="Actual" />
-                  </AreaChart>
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12, fontWeight: 500 }} iconType="circle" />
+                    <ReferenceLine
+                      y={avgActualLine}
+                      stroke={C.amber}
+                      strokeDasharray="4 4"
+                      strokeWidth={1.5}
+                      label={{ value: `Avg ${shortFmt(avgActualLine)}`, position: 'right', style: { fontSize: 10, fill: C.amber, fontWeight: 600 } }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="system"
+                      stroke={C.slate}
+                      strokeWidth={2}
+                      strokeDasharray="5 4"
+                      name="System Sales"
+                      dot={{ r: 2, fill: C.slate, strokeWidth: 0 }}
+                      activeDot={{ r: 5, fill: C.slate, stroke: '#fff', strokeWidth: 2 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="actual"
+                      stroke={C.navy}
+                      strokeWidth={3}
+                      name="Actual Sales"
+                      dot={{ r: 3, fill: C.navy, stroke: '#fff', strokeWidth: 2 }}
+                      activeDot={{ r: 6, fill: C.navy, stroke: '#fff', strokeWidth: 2 }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
           )}
 
-          {/* Chart 2: Staff Comparison */}
+          {/* Staff Comparison Chart — Enhanced */}
           {charts.staffSummary.length > 0 && (
-            <div className="mt-6 report-section">
-              <ChartTitle>Staff Sales Comparison — Actual vs System</ChartTitle>
-              <div className="h-72 bg-slate-50/50 border border-slate-200 rounded-lg p-3">
+            <div className="mt-8 report-section">
+              <ChartTitle subtitle="Actual vs system sales per staff member">
+                Staff Sales Comparison
+              </ChartTitle>
+              <div className="h-80 bg-gradient-to-b from-slate-50 to-white border border-slate-200 rounded-lg p-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={charts.staffSummary} margin={chartMargins}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: C.grid }} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={shortFmt} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]} cursor={{ fill: 'rgba(15,23,42,0.04)' }} />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                    <Bar dataKey="system" fill={C.slateLight} name="System" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="actual" fill={C.navy} name="Actual" radius={[4, 4, 0, 0]} />
+                  <BarChart data={charts.staffSummary} margin={{ top: 20, right: 30, left: 10, bottom: 5 }} barGap={4}>
+                    <CartesianGrid strokeDasharray="4 4" stroke={C.grid} vertical={false} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ ...axisTick, fontSize: 11 }}
+                      axisLine={{ stroke: C.slateLight }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={axisTick}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={shortFmt}
+                      label={{ value: 'Sales (KES)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#94a3b8' } }}
+                    />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]}
+                      cursor={{ fill: 'rgba(15,23,42,0.04)' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12, fontWeight: 500 }} iconType="circle" />
+                    <Bar dataKey="system" fill={C.slateLight} name="System Sales" radius={[5, 5, 0, 0]} />
+                    <Bar dataKey="actual" fill={C.navy} name="Actual Sales" radius={[5, 5, 0, 0]}>
+                      <LabelList dataKey="actual" position="top" formatter={shortFmt} style={{ fontSize: 10, fill: '#0f172a', fontWeight: 600 }} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -305,8 +334,8 @@ export function ReportClient({ report }: { report: any }) {
 
           {/* Staff Detail Table */}
           {charts.staffSummary.length > 0 && (
-            <div className="mt-6 report-section">
-              <ChartTitle>Staff Sales Detail</ChartTitle>
+            <div className="mt-8 report-section">
+              <ChartTitle subtitle="Individual performance breakdown">Staff Sales Detail</ChartTitle>
               <Table>
                 <thead>
                   <tr>
@@ -340,16 +369,12 @@ export function ReportClient({ report }: { report: any }) {
           )}
         </Section>
 
-        {/* ═══════════ 4. ACCOUNT STANDING ═══════════ */}
+        {/* 04 ACCOUNT STANDING */}
         <Section num="04" title="Account Standing">
           <div className="grid grid-cols-3 gap-4 mb-6">
-            <MiniStat label="Credit Sales" value={`KES ${fmt(credit.totalCredit)}`} />
+            <MiniStat label="Credit Sales" value={`KES ${fmt(credit.totalCredit)}`} color={C.amber} />
             <MiniStat label="Repayments" value={`KES ${fmt(credit.totalRepayments)}`} color={C.emerald} />
-            <MiniStat
-              label="Outstanding Balance"
-              value={`KES ${fmt(credit.outstanding)}`}
-              color={credit.outstanding > 0 ? C.amber : C.emerald}
-            />
+            <MiniStat label="Outstanding Balance" value={`KES ${fmt(credit.outstanding)}`} color={credit.outstanding > 0 ? C.amber : C.emerald} />
           </div>
 
           <Table>
@@ -363,7 +388,7 @@ export function ReportClient({ report }: { report: any }) {
             <tbody>
               <Tr><Td>Opening Credit Balance</Td><Td align="right">{fmt(0)}</Td><Td align="right">—</Td></Tr>
               <Tr><Td>+ Credit Sales</Td><Td align="right" color={C.amber}>+{fmt(credit.totalCredit)}</Td><Td align="right">100.00%</Td></Tr>
-              <Tr><Td>- Repayments</Td><Td align="right" color={C.emerald}>-{fmt(credit.totalRepayments)}</Td><Td align="right">{credit.totalCredit === 0 ? '—' : (credit.repaymentRate.toFixed(2) + '%')}</Td></Tr>
+              <Tr><Td>− Repayments</Td><Td align="right" color={C.emerald}>−{fmt(credit.totalRepayments)}</Td><Td align="right">{credit.totalCredit === 0 ? '—' : (credit.repaymentRate.toFixed(2) + '%')}</Td></Tr>
               <Tr highlight>
                 <Td bold>Closing Outstanding Balance</Td>
                 <Td align="right" bold>{fmt(credit.outstanding)}</Td>
@@ -379,18 +404,24 @@ export function ReportClient({ report }: { report: any }) {
           </NarrativeBlock>
 
           {charts.creditTrend.length > 0 && (
-            <div className="mt-6 report-section">
-              <ChartTitle>Credit Sales vs Repayments — Daily Movement</ChartTitle>
-              <div className="h-64 bg-slate-50/50 border border-slate-200 rounded-lg p-3">
+            <div className="mt-8 report-section">
+              <ChartTitle subtitle="Daily credit issuance vs customer repayments">
+                Credit Sales vs Repayments
+              </ChartTitle>
+              <div className="h-72 bg-gradient-to-b from-slate-50 to-white border border-slate-200 rounded-lg p-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={charts.creditTrend} margin={chartMargins}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
-                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: C.grid }} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={shortFmt} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]} cursor={{ fill: 'rgba(15,23,42,0.04)' }} />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                    <Bar dataKey="credit" fill={C.amber} name="Credit Sales" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="repayment" fill={C.emerald} name="Repayments" radius={[4, 4, 0, 0]} />
+                  <BarChart data={charts.creditTrend} margin={{ top: 20, right: 30, left: 10, bottom: 5 }} barGap={2}>
+                    <CartesianGrid strokeDasharray="4 4" stroke={C.grid} vertical={false} />
+                    <XAxis dataKey="day" tick={axisTick} axisLine={{ stroke: C.slateLight }} tickLine={false} />
+                    <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={shortFmt} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(v: any, name: any) => [`KES ${fmt(Number(v))}`, name]}
+                      cursor={{ fill: 'rgba(15,23,42,0.04)' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12, fontWeight: 500 }} iconType="circle" />
+                    <Bar dataKey="credit" fill={C.amber} name="Credit Sales" radius={[5, 5, 0, 0]} />
+                    <Bar dataKey="repayment" fill={C.emerald} name="Repayments" radius={[5, 5, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -398,17 +429,15 @@ export function ReportClient({ report }: { report: any }) {
           )}
         </Section>
 
-        {/* ═══════════ 5. STOCK LOSS RECOVERY ═══════════ */}
+        {/* 05 STOCK LOSS RECOVERY */}
         <Section num="05" title="Stock Loss Recovery & Liability">
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
-            Recovery Calculation
-          </h3>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em] mb-3">Recovery Calculation</h3>
 
           <Table>
             <thead>
               <tr>
                 <Th align="left">Recovery Item</Th>
-                <Th>Formula</Th>
+                <Th align="left">Formula</Th>
                 <Th>Amount (KES)</Th>
               </tr>
             </thead>
@@ -420,21 +449,13 @@ export function ReportClient({ report }: { report: any }) {
                 <Td align="left" muted>MIN(excess, loss)</Td>
                 <Td align="right" bold color={C.emerald}>{fmt(recovery.recoveryApplied)}</Td>
               </Tr>
-              <Tr><Td>Remaining Loss</Td><Td align="left" muted>MAX(loss - recovery, 0)</Td><Td align="right" color={recovery.remainingLoss > 0 ? C.rose : C.slate} bold>{fmt(recovery.remainingLoss)}</Td></Tr>
-              <Tr><Td>Surplus</Td><Td align="left" muted>MAX(excess - loss, 0)</Td><Td align="right" color={recovery.surplus > 0 ? C.emerald : C.slate} bold>{fmt(recovery.surplus)}</Td></Tr>
-              <Tr><Td>Recovery Rate</Td><Td align="left" muted>recovery ÷ loss</Td><Td align="right" bold>{recovery.recoveryRate.toFixed(2)}%</Td></Tr>
+              <Tr><Td>Remaining Loss</Td><Td align="left" muted>MAX(loss − recovery, 0)</Td><Td align="right" color={recovery.remainingLoss > 0 ? C.rose : C.slate} bold>{fmt(recovery.remainingLoss)}</Td></Tr>
+              <Tr><Td>Surplus</Td><Td align="left" muted>MAX(excess − loss, 0)</Td><Td align="right" color={recovery.surplus > 0 ? C.emerald : C.slate} bold>{fmt(recovery.surplus)}</Td></Tr>
+              <Tr><Td>Recovery Rate</Td><Td align="left" muted>recovery ÷ loss × 100</Td><Td align="right" bold>{recovery.recoveryRate.toFixed(2)}%</Td></Tr>
             </tbody>
           </Table>
 
-          <NarrativeBlock
-            color={
-              recovery.stockLoss === 0
-                ? C.slate
-                : recovery.recoveryApplied >= recovery.stockLoss
-                ? C.emerald
-                : C.rose
-            }
-          >
+          <NarrativeBlock color={recovery.stockLoss === 0 ? C.slate : recovery.recoveryApplied >= recovery.stockLoss ? C.emerald : C.rose}>
             {recovery.stockLoss === 0
               ? 'No stock loss was recorded for the period, so no recovery was required.'
               : recovery.recoveryApplied >= recovery.stockLoss
@@ -443,9 +464,9 @@ export function ReportClient({ report }: { report: any }) {
           </NarrativeBlock>
 
           {recoveryPieData.length > 0 && (
-            <div className="mt-6 report-section">
-              <ChartTitle>Recovery Breakdown</ChartTitle>
-              <div className="h-72 bg-slate-50/50 border border-slate-200 rounded-lg p-3">
+            <div className="mt-8 report-section">
+              <ChartTitle subtitle="Recovery vs remaining loss breakdown">Recovery Analysis</ChartTitle>
+              <div className="h-80 bg-gradient-to-b from-slate-50 to-white border border-slate-200 rounded-lg p-4">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -454,14 +475,14 @@ export function ReportClient({ report }: { report: any }) {
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={3}
-                      label={(e: any) => `${e.name}: ${fmt(e.value)}`}
-                      labelLine={{ stroke: C.slate }}
+                      innerRadius={65}
+                      outerRadius={110}
+                      paddingAngle={4}
+                      label={({ name, value }: any) => `${name}: KES ${fmt(Number(value))}`}
+                      labelLine={{ stroke: C.slate, strokeWidth: 1 }}
                     >
                       {recoveryPieData.map((d, i) => (
-                        <Cell key={i} fill={d.fill} stroke="#fff" strokeWidth={2} />
+                        <Cell key={i} fill={d.fill} stroke="#fff" strokeWidth={3} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => `KES ${fmt(Number(v))}`} />
@@ -471,24 +492,14 @@ export function ReportClient({ report }: { report: any }) {
             </div>
           )}
 
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3 mt-8">
-            Staff Liability Allocation
-          </h3>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em] mb-3 mt-8">Staff Liability Allocation</h3>
+          <NarrativeBlock color={recovery.remainingLoss === 0 ? C.emerald : C.rose}>
+            {recovery.remainingLoss === 0
+              ? 'No staff deductions are required for the reporting period based on the configured recovery and liability rules.'
+              : `A remaining unrecovered stock loss of KES ${fmt(recovery.remainingLoss)} exists. Staff liability allocation may be configured per company policy.`}
+          </NarrativeBlock>
 
-          {recovery.remainingLoss === 0 ? (
-            <NarrativeBlock color={C.emerald}>
-              No staff deductions are required for the reporting period based on the configured recovery and liability rules.
-            </NarrativeBlock>
-          ) : (
-            <NarrativeBlock color={C.rose}>
-              A remaining unrecovered stock loss of KES {fmt(recovery.remainingLoss)} exists. Staff liability
-              allocation may be configured per company policy.
-            </NarrativeBlock>
-          )}
-
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3 mt-8">
-            Deduction Schedule
-          </h3>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em] mb-3 mt-8">Deduction Schedule</h3>
           <Table>
             <thead>
               <tr>
@@ -502,7 +513,7 @@ export function ReportClient({ report }: { report: any }) {
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
                   {recovery.remainingLoss === 0
-                    ? 'No deductions scheduled — full recovery achieved.'
+                    ? '✓ No deductions scheduled — full recovery achieved.'
                     : 'No allocation rule configured. Define liability allocation in Settings.'}
                 </td>
               </tr>
@@ -510,17 +521,13 @@ export function ReportClient({ report }: { report: any }) {
           </Table>
         </Section>
 
-        {/* ═══════════ 6. ATTENDANCE ═══════════ */}
+        {/* 06 ATTENDANCE */}
         <Section num="06" title="Staff Attendance Analysis">
           <div className="grid grid-cols-4 gap-4 mb-6">
             <MiniStat label="Staff Tracked" value={String(attendance.rows.length)} />
-            <MiniStat label="Total Scheduled Days" value={String(totalScheduledOf(attendance))} />
+            <MiniStat label="Scheduled Days" value={String(totalScheduledOf(attendance))} />
             <MiniStat label="Days Present" value={String(totalPresentOf(attendance))} color={C.emerald} />
-            <MiniStat
-              label="Overall Attendance Rate"
-              value={`${attendance.overall.toFixed(2)}%`}
-              color={attendance.overall >= 90 ? C.emerald : C.amber}
-            />
+            <MiniStat label="Attendance Rate" value={`${attendance.overall.toFixed(2)}%`} color={attendance.overall >= 90 ? C.emerald : C.amber} />
           </div>
 
           <Table>
@@ -537,7 +544,7 @@ export function ReportClient({ report }: { report: any }) {
             </thead>
             <tbody>
               {attendance.rows.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">No attendance data recorded for this period.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">No attendance data recorded.</td></tr>
               ) : (
                 attendance.rows.map((r: any, i: number) => (
                   <tr key={i}>
@@ -547,9 +554,7 @@ export function ReportClient({ report }: { report: any }) {
                     <Td align="right" muted>{r.leave}</Td>
                     <Td align="right" color={r.absent > 0 ? C.rose : C.slate}>{r.absent}</Td>
                     <Td align="right">{r.total}</Td>
-                    <Td align="right" bold color={r.rate >= 90 ? C.emerald : r.rate >= 75 ? C.amber : C.rose}>
-                      {r.rate.toFixed(1)}%
-                    </Td>
+                    <Td align="right" bold color={r.rate >= 90 ? C.emerald : r.rate >= 75 ? C.amber : C.rose}>{r.rate.toFixed(1)}%</Td>
                   </tr>
                 ))
               )}
@@ -557,7 +562,7 @@ export function ReportClient({ report }: { report: any }) {
           </Table>
         </Section>
 
-        {/* ═══════════ 7. KPI TABLE ═══════════ */}
+        {/* 07 KPI TABLE */}
         <Section num="07" title="Key Performance Indicators">
           <Table>
             <thead>
@@ -584,12 +589,11 @@ export function ReportClient({ report }: { report: any }) {
           </Table>
         </Section>
 
-        {/* ═══════════ 8. APPROVAL ═══════════ */}
+        {/* 08 APPROVAL */}
         <Section num="08" title="Approval">
           <p className="text-sm text-slate-700 mb-8">
             This report has been prepared from source operational data and is submitted for review and approval.
           </p>
-
           <div className="grid grid-cols-3 gap-8 pt-4">
             <SignatureBlock title="Prepared By" role="Stock Controller" />
             <SignatureBlock title="Reviewed By" role="Branch Manager" />
@@ -597,7 +601,6 @@ export function ReportClient({ report }: { report: any }) {
           </div>
         </Section>
 
-        {/* Footer */}
         <div className="border-t border-slate-300 px-10 py-4 mt-4 flex items-center justify-between text-xs text-slate-500">
           <span>{report.branch.organization} — Confidential</span>
           <span>{report.branch.name} · {report.period}</span>
@@ -607,7 +610,7 @@ export function ReportClient({ report }: { report: any }) {
   );
 }
 
-// ═══════════════ HELPER COMPONENTS ═══════════════
+// ═══════ HELPERS ═══════
 
 function MetaField({ label, value }: { label: string; value: string }) {
   return (
@@ -630,36 +633,20 @@ function Section({ num, title, children }: { num: string; title: string; childre
   );
 }
 
-function KpiCard({
-  label, value, prefix, accent, delta, deltaColor,
-}: {
-  label: string;
-  value: string;
-  prefix?: string;
-  accent?: string;
-  delta?: string;
-  deltaColor?: string;
-}) {
+function KpiCard({ label, value, prefix, accent, delta, deltaColor }: any) {
   return (
-    <div
-      className="border border-slate-200 rounded-lg p-3 bg-white"
-      style={{ borderLeft: `3px solid ${accent ?? C.navy}` }}
-    >
+    <div className="border border-slate-200 rounded-lg p-3 bg-white" style={{ borderLeft: `3px solid ${accent ?? C.navy}` }}>
       <p className="text-xs text-slate-500 font-medium">{label}</p>
       <p className="text-lg font-bold mt-0.5" style={{ color: accent ?? C.navy }}>
         {prefix && <span className="text-xs font-semibold text-slate-400 mr-1">{prefix}</span>}
         {value}
       </p>
-      {delta && (
-        <p className="text-xs font-medium mt-0.5" style={{ color: deltaColor ?? C.slate }}>
-          {delta}
-        </p>
-      )}
+      {delta && <p className="text-xs font-medium mt-0.5" style={{ color: deltaColor ?? C.slate }}>{delta}</p>}
     </div>
   );
 }
 
-function MiniStat({ label, value, color }: { label: string; value: string; color?: string }) {
+function MiniStat({ label, value, color }: any) {
   return (
     <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
       <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">{label}</p>
@@ -682,21 +669,21 @@ function HighlightRow({ items }: { items: { label: string; value: string; sub?: 
   );
 }
 
-function ChartTitle({ children }: { children: React.ReactNode }) {
+function ChartTitle({ children, subtitle }: { children: React.ReactNode; subtitle?: string }) {
   return (
-    <h3 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
-      <span className="w-1 h-3 bg-slate-900 inline-block" />
-      {children}
-    </h3>
+    <div className="mb-3">
+      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+        <span className="w-1 h-3.5 bg-slate-900 inline-block rounded-sm" />
+        {children}
+      </h3>
+      {subtitle && <p className="text-xs text-slate-500 ml-3 mt-0.5">{subtitle}</p>}
+    </div>
   );
 }
 
 function NarrativeBlock({ children, color }: { children: React.ReactNode; color: string }) {
   return (
-    <div
-      className="mt-4 p-4 rounded-lg text-sm text-slate-700 leading-relaxed"
-      style={{ background: `${color}0d`, borderLeft: `3px solid ${color}` }}
-    >
+    <div className="mt-4 p-4 rounded-lg text-sm text-slate-700 leading-relaxed" style={{ background: `${color}0d`, borderLeft: `3px solid ${color}` }}>
       {children}
     </div>
   );
@@ -714,42 +701,16 @@ function SignatureBlock({ title, role }: { title: string; role: string }) {
   );
 }
 
-// Table primitives
 function Table({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="overflow-hidden border border-slate-200 rounded-lg">
-      <table className="w-full text-sm border-collapse">{children}</table>
-    </div>
-  );
+  return <div className="overflow-hidden border border-slate-200 rounded-lg"><table className="w-full text-sm border-collapse">{children}</table></div>;
 }
 
 function Th({ children, align = 'right' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
-  return (
-    <th
-      className={`px-4 py-3 font-semibold text-xs uppercase tracking-wider text-slate-500 bg-slate-100 border-b border-slate-200 text-${align}`}
-    >
-      {children}
-    </th>
-  );
+  return <th className={`px-4 py-3 font-semibold text-xs uppercase tracking-wider text-slate-500 bg-slate-100 border-b border-slate-200 text-${align}`}>{children}</th>;
 }
 
-function Td({
-  children, align = 'left', bold, muted, color,
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-  bold?: boolean;
-  muted?: boolean;
-  color?: string;
-}) {
-  return (
-    <td
-      className={`px-4 py-2.5 border-t border-slate-100 ${align === 'right' ? 'text-right' : ''} ${bold ? 'font-semibold' : ''} ${muted ? 'text-slate-500 text-xs' : ''}`}
-      style={{ color: color ?? undefined }}
-    >
-      {children}
-    </td>
-  );
+function Td({ children, align = 'left', bold, muted, color }: any) {
+  return <td className={`px-4 py-2.5 border-t border-slate-100 ${align === 'right' ? 'text-right' : ''} ${bold ? 'font-semibold' : ''} ${muted ? 'text-slate-500 text-xs' : ''}`} style={{ color: color ?? undefined }}>{children}</td>;
 }
 
 function Tr({ children, highlight }: { children: React.ReactNode; highlight?: boolean }) {
@@ -761,19 +722,10 @@ function KpiRow({ name, formula, value, warn }: { name: string; formula: string;
     <tr>
       <td className="px-4 py-2.5 border-t border-slate-100 font-medium text-slate-800">{name}</td>
       <td className="px-4 py-2.5 border-t border-slate-100 text-xs text-slate-500">{formula}</td>
-      <td
-        className="px-4 py-2.5 border-t border-slate-100 text-right font-bold"
-        style={{ color: warn ? C.rose : C.navy }}
-      >
-        {value}
-      </td>
+      <td className="px-4 py-2.5 border-t border-slate-100 text-right font-bold" style={{ color: warn ? C.rose : C.navy }}>{value}</td>
     </tr>
   );
 }
 
-function totalPresentOf(attendance: any) {
-  return attendance.rows.reduce((s: number, r: any) => s + r.present, 0);
-}
-function totalScheduledOf(attendance: any) {
-  return attendance.rows.reduce((s: number, r: any) => s + r.total, 0);
-}
+function totalPresentOf(attendance: any) { return attendance.rows.reduce((s: number, r: any) => s + r.present, 0); }
+function totalScheduledOf(attendance: any) { return attendance.rows.reduce((s: number, r: any) => s + r.total, 0); }
