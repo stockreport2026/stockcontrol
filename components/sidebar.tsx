@@ -8,8 +8,8 @@ const nav = [
   {
     section: 'Operations',
     items: [
-      { name: 'Daily Sales', href: '/operations/daily-sales' },
-      { name: 'Staff Sales', href: '/operations/staff-sales' },
+      { name: 'Sales Entry', href: '/operations/sales' },
+      { name: 'Staff Sales Summary', href: '/operations/staff-sales' },
       { name: 'Branch Sales', href: '/operations/branch-sales' },
       { name: 'Credit Sales', href: '/operations/credit-sales' },
       { name: 'Repayments', href: '/operations/repayments' },

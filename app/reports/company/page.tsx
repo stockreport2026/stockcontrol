@@ -4,11 +4,7 @@ import { CompanyReportClient } from './company-report-client';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CompanyReportPage({
-  searchParams,
-}: {
-  searchParams: { year?: string; month?: string };
-}) {
+export default async function CompanyReportPage({ searchParams }: { searchParams: { year?: string; month?: string } }) {
   const year = parseInt(searchParams.year ?? '2026');
   const month = parseInt(searchParams.month ?? '8');
 
@@ -18,95 +14,57 @@ export default async function CompanyReportPage({
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0, 23, 59, 59);
 
-  const branches = await prisma.branch.findMany({
-    where: { organizationId: org.id },
-    orderBy: { name: 'asc' },
-  });
+  const branches = await prisma.branch.findMany({ where: { organizationId: org.id }, orderBy: { name: 'asc' } });
 
   const rows: any[] = [];
-  let grandActual = new Decimal(0);
-  let grandSystem = new Decimal(0);
-  let grandStockLoss = new Decimal(0);
-  let grandRecovery = new Decimal(0);
-  let grandRemaining = new Decimal(0);
-  let grandOpeningStock = new Decimal(0);
-  let grandOpeningDebt = new Decimal(0);
-  let grandClosingDebt = new Decimal(0);
-  let grandCredit = new Decimal(0);
-  let grandRepay = new Decimal(0);
+  let gActual = new Decimal(0), gSystem = new Decimal(0), gLoss = new Decimal(0), gRec = new Decimal(0);
+  let gRem = new Decimal(0), gOpenDebt = new Decimal(0), gCloseDebt = new Decimal(0), gCredit = new Decimal(0), gRepay = new Decimal(0);
 
   for (const branch of branches) {
-    const sales = await prisma.dailySale.findMany({
-      where: { branchId: branch.id, saleDate: { gte: startDate, lte: endDate } },
-    });
-    const actual = sales.reduce((s, d) => s.plus(d.actualSales.toString()), new Decimal(0));
-    const system = sales.reduce((s, d) => s.plus(d.systemSales.toString()), new Decimal(0));
-    const variance = actual.minus(system);
-    const excessSales = sales.reduce((sum, d) => {
-      const v = new Decimal(d.variance.toString());
-      return v.isPositive() ? sum.plus(v) : sum;
-    }, new Decimal(0));
+    const [staffSales, creditSales, repayments, stocktakes, account] = await Promise.all([
+      prisma.staffSales.findMany({ where: { branchId: branch.id, periodYear: year, periodMonth: month } }),
+      prisma.creditSale.findMany({ where: { branchId: branch.id, saleDate: { gte: startDate, lte: endDate } } }),
+      prisma.repayment.findMany({ where: { branchId: branch.id, paymentDate: { gte: startDate, lte: endDate } } }),
+      prisma.stocktake.findMany({ where: { branchId: branch.id, stocktakeDate: { gte: startDate, lte: endDate }, status: 'APPROVED' }, include: { items: true } }),
+      prisma.accountBalance.findUnique({ where: { branchId_periodYear_periodMonth: { branchId: branch.id, periodYear: year, periodMonth: month } } }),
+    ]);
 
-    const stocktakes = await prisma.stocktake.findMany({
-      where: { branchId: branch.id, stocktakeDate: { gte: startDate, lte: endDate }, status: 'APPROVED' },
-      include: { items: true },
-    });
-    let stockLoss = new Decimal(0);
-    let openingStock = new Decimal(0);
-    for (const st of stocktakes) {
-      for (const item of st.items) {
-        const v = new Decimal(item.varianceValue.toString());
-        if (v.isPositive()) stockLoss = stockLoss.plus(v);
-        openingStock = openingStock.plus(new Decimal(item.expectedQty.toString()).times(item.unitCost.toString()));
-      }
-    }
-    const recovery = Decimal.min(excessSales, stockLoss);
-    const remaining = Decimal.max(stockLoss.minus(recovery), 0);
-
-    const account = await prisma.accountBalance.findUnique({
-      where: { branchId_periodYear_periodMonth: { branchId: branch.id, periodYear: year, periodMonth: month } },
-    });
-    const openingDebt = new Decimal(account?.openingBalance.toString() ?? '0');
-    const closingDebt = openingDebt.plus(remaining);
-
-    const creditSales = await prisma.creditSale.findMany({
-      where: { branchId: branch.id, saleDate: { gte: startDate, lte: endDate } },
-    });
-    const repayments = await prisma.repayment.findMany({
-      where: { branchId: branch.id, paymentDate: { gte: startDate, lte: endDate } },
-    });
+    const rawActual = staffSales.reduce((s, x) => s.plus(x.actualSales.toString()), new Decimal(0));
+    const rawSystem = staffSales.reduce((s, x) => s.plus(x.systemSales.toString()), new Decimal(0));
     const credit = creditSales.reduce((s, c) => s.plus(c.amount.toString()), new Decimal(0));
     const repay = repayments.reduce((s, r) => s.plus(r.amount.toString()), new Decimal(0));
 
+    const actual = rawActual.minus(repay);
+    const system = rawSystem.minus(credit);
+    const variance = actual.minus(system);
+
+    const excess = staffSales.reduce((s, x) => {
+      const v = new Decimal(x.variance.toString());
+      return v.isPositive() ? s.plus(v) : s;
+    }, new Decimal(0));
+
+    let loss = new Decimal(0);
+    for (const st of stocktakes) for (const item of st.items) {
+      const v = new Decimal(item.varianceValue.toString());
+      if (v.isPositive()) loss = loss.plus(v);
+    }
+
+    const recovery = Decimal.min(excess, loss);
+    const remaining = Decimal.max(loss.minus(recovery), 0);
+    const openDebt = new Decimal(account?.openingBalance.toString() ?? '0');
+    const closeDebt = openDebt.plus(remaining);
+
     rows.push({
-      branchId: branch.id,
-      name: branch.name,
-      code: branch.code,
-      location: branch.location ?? '',
-      actual: Number(actual.toFixed(2)),
-      system: Number(system.toFixed(2)),
-      variance: Number(variance.toFixed(2)),
-      excessSales: Number(excessSales.toFixed(2)),
-      stockLoss: Number(stockLoss.toFixed(2)),
-      recovery: Number(recovery.toFixed(2)),
-      remaining: Number(remaining.toFixed(2)),
-      openingStock: Number(openingStock.toFixed(2)),
-      openingDebt: Number(openingDebt.toFixed(2)),
-      closingDebt: Number(closingDebt.toFixed(2)),
-      credit: Number(credit.toFixed(2)),
-      repay: Number(repay.toFixed(2)),
+      branchId: branch.id, name: branch.name, code: branch.code, location: branch.location ?? '',
+      actual: Number(actual.toFixed(2)), system: Number(system.toFixed(2)), variance: Number(variance.toFixed(2)),
+      stockLoss: Number(loss.toFixed(2)), recovery: Number(recovery.toFixed(2)), remaining: Number(remaining.toFixed(2)),
+      openingDebt: Number(openDebt.toFixed(2)), closingDebt: Number(closeDebt.toFixed(2)),
+      credit: Number(credit.toFixed(2)), repay: Number(repay.toFixed(2)),
     });
 
-    grandActual = grandActual.plus(actual);
-    grandSystem = grandSystem.plus(system);
-    grandStockLoss = grandStockLoss.plus(stockLoss);
-    grandRecovery = grandRecovery.plus(recovery);
-    grandRemaining = grandRemaining.plus(remaining);
-    grandOpeningStock = grandOpeningStock.plus(openingStock);
-    grandOpeningDebt = grandOpeningDebt.plus(openingDebt);
-    grandClosingDebt = grandClosingDebt.plus(closingDebt);
-    grandCredit = grandCredit.plus(credit);
-    grandRepay = grandRepay.plus(repay);
+    gActual = gActual.plus(actual); gSystem = gSystem.plus(system); gLoss = gLoss.plus(loss);
+    gRec = gRec.plus(recovery); gRem = gRem.plus(remaining); gOpenDebt = gOpenDebt.plus(openDebt);
+    gCloseDebt = gCloseDebt.plus(closeDebt); gCredit = gCredit.plus(credit); gRepay = gRepay.plus(repay);
   }
 
   const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -118,18 +76,12 @@ export default async function CompanyReportPage({
     generatedAt: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
     branches: rows,
     totals: {
-      actual: Number(grandActual.toFixed(2)),
-      system: Number(grandSystem.toFixed(2)),
-      variance: Number(grandActual.minus(grandSystem).toFixed(2)),
-      stockLoss: Number(grandStockLoss.toFixed(2)),
-      recovery: Number(grandRecovery.toFixed(2)),
-      remaining: Number(grandRemaining.toFixed(2)),
-      openingStock: Number(grandOpeningStock.toFixed(2)),
-      openingDebt: Number(grandOpeningDebt.toFixed(2)),
-      closingDebt: Number(grandClosingDebt.toFixed(2)),
-      credit: Number(grandCredit.toFixed(2)),
-      repay: Number(grandRepay.toFixed(2)),
-      branchCount: branches.length,
+      actual: Number(gActual.toFixed(2)), system: Number(gSystem.toFixed(2)),
+      variance: Number(gActual.minus(gSystem).toFixed(2)),
+      stockLoss: Number(gLoss.toFixed(2)), recovery: Number(gRec.toFixed(2)),
+      remaining: Number(gRem.toFixed(2)), openingDebt: Number(gOpenDebt.toFixed(2)),
+      closingDebt: Number(gCloseDebt.toFixed(2)), credit: Number(gCredit.toFixed(2)),
+      repay: Number(gRepay.toFixed(2)), branchCount: branches.length,
     },
   };
 

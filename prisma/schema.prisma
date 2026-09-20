@@ -30,7 +30,7 @@ model Branch {
   createdAt      DateTime @default(now())
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   staff          Staff[]
-  dailySales     DailySale[]
+  staffSales     StaffSales[]
   creditSales    CreditSale[]
   repayments     Repayment[]
   stockTxs       StockTransaction[]
@@ -70,40 +70,30 @@ model Staff {
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   branch         Branch   @relation(fields: [branchId], references: [id])
-  dailySales     DailySale[]
+  sales          StaffSales[]
   creditSales    CreditSale[]
   repayments     Repayment[]
   attendances    Attendance[]
   @@unique([organizationId, employeeCode])
 }
 
-model DailySale {
-  id          String   @id @default(cuid())
-  branchId    String
-  staffId     String
-  saleDate    DateTime
-  actualSales Decimal  @db.Decimal(18, 2)
-  systemSales Decimal  @db.Decimal(18, 2)
-  variance    Decimal  @db.Decimal(18, 2) @default(0)
-  status      RecordStatus @default(DRAFT)
-  createdAt   DateTime @default(now())
-  branch      Branch   @relation(fields: [branchId], references: [id])
-  staff       Staff    @relation(fields: [staffId], references: [id])
-  @@unique([branchId, staffId, saleDate])
-  @@index([branchId, saleDate])
+// ─── PERIOD-BASED SALES (one row per staff per month) ───
+model StaffSales {
+  id             String   @id @default(cuid())
+  branchId       String
+  staffId        String
+  periodYear     Int
+  periodMonth    Int
+  actualSales    Decimal  @db.Decimal(18, 2)
+  systemSales    Decimal  @db.Decimal(18, 2)
+  variance       Decimal  @db.Decimal(18, 2) @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  branch         Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  staff          Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  @@unique([staffId, periodYear, periodMonth])
+  @@index([branchId, periodYear, periodMonth])
 }
-
-enum RecordStatus {
-  DRAFT
-  SUBMITTED
-  UNDER_REVIEW
-  APPROVED
-  REJECTED
-}
-
-// ─── SIMPLIFIED CREDIT SALES ───────────────────────────────
-// Reduces system sales for the staff and branch.
-// Just: customer name, date, amount, staff, branch.
 
 model CreditSale {
   id           String   @id @default(cuid())
@@ -119,9 +109,6 @@ model CreditSale {
   @@index([staffId, saleDate])
 }
 
-// ─── SIMPLIFIED REPAYMENTS ─────────────────────────────────
-// Reduces actual sales for the staff and branch.
-
 model Repayment {
   id          String   @id @default(cuid())
   branchId    String
@@ -135,9 +122,6 @@ model Repayment {
   @@index([branchId, paymentDate])
   @@index([staffId, paymentDate])
 }
-
-// ─── SIMPLIFIED ATTENDANCE ─────────────────────────────────
-// One row per staff per month — just numbers.
 
 model Attendance {
   id           String   @id @default(cuid())
@@ -224,6 +208,14 @@ model StocktakeItem {
   stocktake     Stocktake @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
   stockItem     StockItem @relation(fields: [stockItemId], references: [id])
   @@unique([stocktakeId, stockItemId])
+}
+
+enum RecordStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
 }
 
 model AccountBalance {

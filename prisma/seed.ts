@@ -44,7 +44,7 @@ async function main() {
   await prisma.stockItem.deleteMany();
   await prisma.repayment.deleteMany();
   await prisma.creditSale.deleteMany();
-  await prisma.dailySale.deleteMany();
+  await prisma.staffSales.deleteMany();
   await prisma.staff.deleteMany();
   await prisma.accountBalance.deleteMany();
   await prisma.branch.deleteMany();
@@ -80,7 +80,7 @@ async function main() {
     )
   );
 
-  // Stock transactions + approved stocktakes for all branches
+  // Stock transactions + approved stocktakes
   const stockTxs: any[] = [];
   for (const item of items) {
     for (const branch of branches) {
@@ -113,7 +113,7 @@ async function main() {
     }
   }
 
-  // Account balances
+  // Account balances for August 2026
   for (const branch of branches) {
     await prisma.accountBalance.create({
       data: {
@@ -126,7 +126,7 @@ async function main() {
   }
 
   console.log(`✅ Mediocare seed complete (${branches.length} branches, ${items.length} items)`);
-  console.log(`📌 Staff, daily sales, credit sales, repayments, and attendance are NOT seeded.`);
+  console.log(`📌 Staff, sales, credit, repayments, attendance are NOT seeded.`);
 }
 
 main()
