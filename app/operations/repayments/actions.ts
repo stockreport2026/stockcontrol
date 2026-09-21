@@ -1,52 +1,72 @@
 'use server';
+
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import Decimal from 'decimal.js';
 import { prisma } from '@/lib/db/prisma';
 
 const schema = z.object({
-  branchId: z.string().min(1),
-  staffId: z.string().min(1),
-  customerName: z.string().optional(),
-  paymentDate: z.string().min(1),
-  amount: z.string().min(1),
+  customerId: z.string().min(1, 'Customer is required'),
+  branchId: z.string().min(1, 'Branch is required'),
+  staffId: z.string().optional(),
+  paymentDate: z.string().min(1, 'Date is required'),
+  amount: z.string().min(1, 'Amount is required'),
+  paymentMethod: z.enum(['CASH', 'MPESA', 'BANK', 'CHEQUE', 'CARD']),
+  receiptRef: z.string().min(1, 'Receipt reference is required'),
   notes: z.string().optional(),
 });
 
-export async function createRepayment(formData: FormData) {
+export type RepayResult = { success: boolean; message: string };
+
+export async function createRepayment(formData: FormData): Promise<RepayResult> {
   const parsed = schema.safeParse({
+    customerId: formData.get('customerId'),
     branchId: formData.get('branchId'),
-    staffId: formData.get('staffId'),
-    customerName: formData.get('customerName'),
+    staffId: formData.get('staffId') || undefined,
     paymentDate: formData.get('paymentDate'),
     amount: formData.get('amount'),
-    notes: formData.get('notes'),
+    paymentMethod: formData.get('paymentMethod'),
+    receiptRef: formData.get('receiptRef'),
+    notes: formData.get('notes') || undefined,
   });
-  if (!parsed.success) return { success: false, message: 'All fields required' };
+
+  if (!parsed.success) {
+    return { success: false, message: parsed.error.issues[0].message };
+  }
 
   const d = parsed.data;
+
   let amount: Decimal;
-  try { amount = new Decimal(d.amount); } catch { return { success: false, message: 'Invalid amount' }; }
-  if (amount.isNegative() || amount.isZero()) return { success: false, message: 'Amount must be positive' };
+  try {
+    amount = new Decimal(d.amount);
+  } catch {
+    return { success: false, message: 'Amount must be a valid number' };
+  }
 
-  await prisma.repayment.create({
-    data: {
-      branchId: d.branchId,
-      staffId: d.staffId,
-      customerName: d.customerName || null,
-      paymentDate: new Date(d.paymentDate),
-      amount,
-      notes: d.notes || null,
-    },
-  });
-  revalidatePath('/operations/repayments');
-  revalidatePath('/operations/credit-sales');
-  return { success: true, message: `Repayment recorded` };
-}
+  if (amount.isNegative() || amount.isZero()) {
+    return { success: false, message: 'Amount must be greater than zero' };
+  }
 
-export async function deleteRepayment(id: string) {
-  await prisma.repayment.delete({ where: { id } });
-  revalidatePath('/operations/repayments');
-  revalidatePath('/operations/credit-sales');
-  return { success: true, message: 'Deleted' };
+  try {
+    await prisma.repayment.create({
+      data: {
+        customerId: d.customerId,
+        branchId: d.branchId,
+        staffId: d.staffId || null,
+        paymentDate: new Date(d.paymentDate),
+        amount,
+        paymentMethod: d.paymentMethod,
+        receiptRef: d.receiptRef,
+        notes: d.notes || null,
+      },
+    });
+
+    revalidatePath('/operations/repayments');
+    return { success: true, message: 'Repayment recorded' };
+  } catch (e: any) {
+    if (e.code === 'P2002') {
+      return { success: false, message: 'Receipt reference already exists' };
+    }
+    return { success: false, message: e.message || 'Failed to save' };
+  }
 }

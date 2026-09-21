@@ -1,47 +1,73 @@
 'use server';
+
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import Decimal from 'decimal.js';
 import { prisma } from '@/lib/db/prisma';
 
 const schema = z.object({
-  branchId: z.string().min(1),
-  staffId: z.string().min(1),
-  customerName: z.string().min(1),
-  saleDate: z.string().min(1),
-  amount: z.string().min(1),
+  customerId: z.string().min(1, 'Customer is required'),
+  branchId: z.string().min(1, 'Branch is required'),
+  staffId: z.string().optional(),
+  saleDate: z.string().min(1, 'Date is required'),
+  invoiceRef: z.string().min(1, 'Invoice reference is required'),
+  amount: z.string().min(1, 'Amount is required'),
+  dueDate: z.string().optional(),
+  notes: z.string().optional(),
 });
 
-export async function createCreditSale(formData: FormData) {
+export type CreditResult = { success: boolean; message: string };
+
+export async function createCreditSale(formData: FormData): Promise<CreditResult> {
   const parsed = schema.safeParse({
+    customerId: formData.get('customerId'),
     branchId: formData.get('branchId'),
-    staffId: formData.get('staffId'),
-    customerName: formData.get('customerName'),
+    staffId: formData.get('staffId') || undefined,
     saleDate: formData.get('saleDate'),
+    invoiceRef: formData.get('invoiceRef'),
     amount: formData.get('amount'),
+    dueDate: formData.get('dueDate') || undefined,
+    notes: formData.get('notes') || undefined,
   });
-  if (!parsed.success) return { success: false, message: 'All fields required' };
+
+  if (!parsed.success) {
+    return { success: false, message: parsed.error.issues[0].message };
+  }
 
   const d = parsed.data;
+
   let amount: Decimal;
-  try { amount = new Decimal(d.amount); } catch { return { success: false, message: 'Invalid amount' }; }
-  if (amount.isNegative() || amount.isZero()) return { success: false, message: 'Amount must be positive' };
+  try {
+    amount = new Decimal(d.amount);
+  } catch {
+    return { success: false, message: 'Amount must be a valid number' };
+  }
 
-  await prisma.creditSale.create({
-    data: {
-      branchId: d.branchId,
-      staffId: d.staffId,
-      customerName: d.customerName,
-      saleDate: new Date(d.saleDate),
-      amount,
-    },
-  });
-  revalidatePath('/operations/credit-sales');
-  return { success: true, message: `Credit to ${d.customerName} recorded` };
-}
+  if (amount.isNegative() || amount.isZero()) {
+    return { success: false, message: 'Amount must be greater than zero' };
+  }
 
-export async function deleteCreditSale(id: string) {
-  await prisma.creditSale.delete({ where: { id } });
-  revalidatePath('/operations/credit-sales');
-  return { success: true, message: 'Deleted' };
+  try {
+    await prisma.creditSale.create({
+      data: {
+        customerId: d.customerId,
+        branchId: d.branchId,
+        staffId: d.staffId || null,
+        saleDate: new Date(d.saleDate),
+        invoiceRef: d.invoiceRef,
+        amount,
+        dueDate: d.dueDate ? new Date(d.dueDate) : null,
+        notes: d.notes || null,
+        status: 'OUTSTANDING',
+      },
+    });
+
+    revalidatePath('/operations/credit-sales');
+    return { success: true, message: 'Credit sale recorded' };
+  } catch (e: any) {
+    if (e.code === 'P2002') {
+      return { success: false, message: 'Invoice reference already exists for this customer' };
+    }
+    return { success: false, message: e.message || 'Failed to save' };
+  }
 }

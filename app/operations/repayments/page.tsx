@@ -1,76 +1,80 @@
 import { prisma } from '@/lib/db/prisma';
-import Decimal from 'decimal.js';
-import { RepaymentForm } from './form';
-import { DeleteRepaymentButton } from './delete-button';
+import { RepaymentForm } from './repayment-form';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 export default async function RepaymentsPage() {
-  const [branches, staff, repayments] = await Promise.all([
+  const [branches, customers, staff, recent] = await Promise.all([
     prisma.branch.findMany({ orderBy: { name: 'asc' } }),
+    prisma.customer.findMany({ orderBy: { name: 'asc' } }),
     prisma.staff.findMany({ orderBy: { firstName: 'asc' } }),
     prisma.repayment.findMany({
-      include: { staff: true, branch: true },
       orderBy: { paymentDate: 'desc' },
-      take: 100,
+      take: 30,
+      include: { customer: true, branch: true, staff: true },
     }),
   ]);
 
-  const totalRepay = repayments.reduce((s, r) => s.plus(r.amount.toString()), new Decimal(0));
+  const branchOptions = branches.map((b) => ({ id: b.id, label: b.name + ' (' + b.code + ')' }));
+
+  const customersByBranch: Record<string, { id: string; label: string }[]> = {};
+  const staffByBranch: Record<string, { id: string; label: string }[]> = {};
+  for (const b of branches) {
+    customersByBranch[b.id] = customers
+      .filter((c) => c.branchId === b.id)
+      .map((c) => ({ id: c.id, label: c.name }));
+    staffByBranch[b.id] = staff
+      .filter((s) => s.branchId === b.id)
+      .map((s) => ({ id: s.id, label: s.firstName + ' ' + s.lastName }));
+  }
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Repayments</h1>
-        <p className="text-slate-500 mt-1">Customer repayments — reduces credit balances and adjusted actual sales</p>
+        <p className="text-slate-500 mt-1">Record customer repayments</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-5 mb-6">
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Total Records</p>
-          <p className="text-2xl font-bold mt-1 text-slate-900">{repayments.length}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Total Repaid</p>
-          <p className="text-2xl font-bold mt-1 text-emerald-600">KES {Number(totalRepay.toFixed(2)).toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Effect on Report</p>
-          <p className="text-sm text-slate-600 mt-2">Reduces credit sales balance & actual sales</p>
-        </div>
-      </div>
+      <RepaymentForm
+        customersByBranch={customersByBranch}
+        staffByBranch={staffByBranch}
+        branches={branchOptions}
+      />
 
-      <div className="mb-6"><RepaymentForm branches={branches} staff={staff} /></div>
-
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+      <div className="mt-8 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Repayment Log ({repayments.length})</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Recent Repayments ({recent.length})</h2>
         </div>
-        {repayments.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">No repayments recorded yet.</div>
+
+        {recent.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">No repayments recorded yet.</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Date</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Staff</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Branch</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Customer</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Notes</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Amount</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Actions</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Date</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Receipt</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Customer</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Branch</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Method</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Amount</th>
               </tr>
             </thead>
             <tbody>
-              {repayments.map((r) => (
+              {recent.map((r) => (
                 <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-6 py-3 text-slate-700">{new Date(r.paymentDate).toLocaleDateString('en-GB')}</td>
-                  <td className="px-6 py-3 font-medium text-slate-900">{r.staff.firstName} {r.staff.lastName}</td>
-                  <td className="px-6 py-3 text-slate-600">{r.branch.name}</td>
-                  <td className="px-6 py-3 text-slate-700">{r.customerName ?? '—'}</td>
-                  <td className="px-6 py-3 text-slate-500 text-xs">{r.notes ?? '—'}</td>
-                  <td className="px-6 py-3 text-right font-medium text-emerald-600">{Number(r.amount).toLocaleString()}</td>
-                  <td className="px-6 py-3 text-right"><DeleteRepaymentButton id={r.id} /></td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {new Date(r.paymentDate).toLocaleDateString('en-GB')}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-700">{r.receiptRef}</td>
+                  <td className="px-4 py-3 text-slate-900 font-medium">{r.customer.name}</td>
+                  <td className="px-4 py-3 text-slate-600">{r.branch.name}</td>
+                  <td className="px-4 py-3 text-slate-600">{r.paymentMethod}</td>
+                  <td className="px-4 py-3 text-right font-medium text-green-600">
+                    +{Number(r.amount).toLocaleString()}
+                  </td>
                 </tr>
               ))}
             </tbody>
