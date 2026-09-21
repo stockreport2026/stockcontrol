@@ -38,6 +38,7 @@ const nav = [
     items: [
       { name: 'Branches', href: '/admin/branches' },
       { name: 'Staff', href: '/admin/staff' },
+      { name: 'Customers', href: '/admin/customers' },
       { name: 'Settings', href: '/admin/settings' },
     ],
   },
@@ -96,7 +97,7 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
-        Demo Retail Group
+        Stock Control System
       </div>
     </aside>
   );
