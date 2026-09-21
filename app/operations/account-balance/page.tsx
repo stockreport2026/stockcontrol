@@ -21,10 +21,9 @@ export default async function AccountBalancePage() {
     }),
   ]);
 
-  // For each record, compute the remaining stock loss to add
   const enriched = [];
   for (const rec of records) {
-    // Latest stock position for this branch matching the period
+    // 1. Remaining stock loss from Recovery (uses matching StockPosition + StaffSales for the same period)
     const stock = await prisma.stockPosition.findFirst({
       where: {
         branchId: rec.branchId,
@@ -35,12 +34,11 @@ export default async function AccountBalancePage() {
 
     let stockLoss = new Decimal(0);
     if (stock) {
-      const opening = new Decimal(stock.openingStockValue.toString());
-      const closing = new Decimal(stock.closingStockValue.toString());
-      stockLoss = Decimal.max(opening.minus(closing), 0);
+      const before = new Decimal(stock.openingStockValue.toString());
+      const after = new Decimal(stock.closingStockValue.toString());
+      stockLoss = Decimal.max(before.minus(after), 0);
     }
 
-    // Excess sales for the period
     const sales = await prisma.staffSales.findMany({
       where: {
         branchId: rec.branchId,
@@ -58,27 +56,39 @@ export default async function AccountBalancePage() {
     const recovery = Decimal.min(excessSales, stockLoss);
     const remainingLoss = Decimal.max(stockLoss.minus(recovery), 0);
 
+    // 2. Account computation
+    const opening = new Decimal(rec.openingBalance.toString());
     const baseClosing = new Decimal(rec.closingBalance.toString());
+
+    // Remaining stock loss is added to closing → branch owes that too
     const adjustedClosing = baseClosing.plus(remainingLoss);
+
+    // Debt Reduced = Opening − Closing
+    //   positive = they paid down debt
+    //   negative = their debt increased
+    const debtReduced = opening.minus(adjustedClosing);
 
     enriched.push({
       id: rec.id,
       year: rec.periodYear,
       month: rec.periodMonth,
       branch: rec.branch.name,
-      opening: new Decimal(rec.openingBalance.toString()).toFixed(2),
+      opening: opening.toFixed(2),
       baseClosing: baseClosing.toFixed(2),
       remainingLoss: remainingLoss.toFixed(2),
       adjustedClosing: adjustedClosing.toFixed(2),
+      debtReduced: debtReduced.toFixed(2),
+      isReduction: debtReduced.isPositive(),
+      isIncrease: debtReduced.isNegative(),
     });
   }
 
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Account Balance</h1>
+        <h1 className="text-3xl font-bold text-slate-900">Account Standing</h1>
         <p className="text-slate-500 mt-1">
-          Remaining stock loss after recovery is added to the account to show the Account Standing.
+          Debt reduced = Opening balance − Closing balance. Remaining stock loss from Recovery is added to closing.
         </p>
       </div>
 
@@ -100,9 +110,10 @@ export default async function AccountBalancePage() {
                   <th className="text-left px-4 py-3 font-medium text-slate-600">Period</th>
                   <th className="text-left px-4 py-3 font-medium text-slate-600">Branch</th>
                   <th className="text-right px-4 py-3 font-medium text-slate-600">Opening</th>
-                  <th className="text-right px-4 py-3 font-medium text-slate-600">Closing (base)</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Base Closing</th>
                   <th className="text-right px-4 py-3 font-medium text-slate-600">+ Stock Loss Carry</th>
-                  <th className="text-right px-4 py-3 font-medium text-slate-600 bg-slate-100">Adjusted Closing</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Adjusted Closing</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600 bg-slate-100">Debt Reduced</th>
                 </tr>
               </thead>
               <tbody>
@@ -115,13 +126,22 @@ export default async function AccountBalancePage() {
                     <td className={'px-4 py-3 text-right font-medium ' + (Number(r.remainingLoss) > 0 ? 'text-rose-600' : 'text-slate-400')}>
                       {Number(r.remainingLoss) > 0 ? '+ ' + fmt(r.remainingLoss) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-900 bg-slate-50">{fmt(r.adjustedClosing)}</td>
+                    <td className="px-4 py-3 text-right text-slate-900 font-medium">{fmt(r.adjustedClosing)}</td>
+                    <td className={'px-4 py-3 text-right font-bold bg-slate-50 ' + (r.isReduction ? 'text-emerald-700' : r.isIncrease ? 'text-rose-700' : 'text-slate-500')}>
+                      {r.isReduction ? '+ ' + fmt(r.debtReduced) : r.isIncrease ? '− ' + fmt(Math.abs(Number(r.debtReduced))) : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-500">
+          <strong>Debt Reduced</strong>: Opening − Adjusted Closing.
+          Positive (green) means the branch paid down their debt.
+          Negative (red) means their debt increased.
+        </div>
       </div>
     </div>
   );
