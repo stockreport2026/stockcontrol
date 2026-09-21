@@ -5,46 +5,47 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/db/prisma';
 
 const schema = z.object({
-  branchId: z.string().min(1, 'Branch required'),
-  firstName: z.string().min(1, 'First name required'),
-  lastName: z.string().min(1, 'Last name required'),
-  employeeCode: z.string().min(1, 'Employee code required'),
+  branchId: z.string().min(1, 'Branch is required'),
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
 });
 
-export async function createStaff(formData: FormData) {
+export type StaffResult = { success: boolean; message: string };
+
+export async function createStaff(formData: FormData): Promise<StaffResult> {
   const parsed = schema.safeParse({
     branchId: formData.get('branchId'),
     firstName: formData.get('firstName'),
     lastName: formData.get('lastName'),
-    employeeCode: formData.get('employeeCode'),
   });
   if (!parsed.success) return { success: false, message: parsed.error.issues[0].message };
 
   const org = await prisma.organization.findFirst();
-  if (!org) return { success: false, message: 'No organization' };
+  if (!org) return { success: false, message: 'No organization found' };
 
-  const d = parsed.data;
-  const existing = await prisma.staff.findFirst({
-    where: { organizationId: org.id, employeeCode: d.employeeCode },
-  });
-  if (existing) return { success: false, message: 'Employee code already exists' };
-
-  await prisma.staff.create({
-    data: {
-      organizationId: org.id,
-      branchId: d.branchId,
-      firstName: d.firstName,
-      lastName: d.lastName,
-      employeeCode: d.employeeCode,
-    },
-  });
-
-  revalidatePath('/admin/staff');
-  return { success: true, message: `${d.firstName} ${d.lastName} added` };
+  try {
+    await prisma.staff.create({
+      data: {
+        organizationId: org.id,
+        branchId: parsed.data.branchId,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+      },
+    });
+    revalidatePath('/admin/staff');
+    revalidatePath('/operations/staff-sales');
+    return { success: true, message: 'Staff added' };
+  } catch (e: any) {
+    return { success: false, message: e.message || 'Failed to add staff' };
+  }
 }
 
-export async function deleteStaff(id: string) {
-  await prisma.staff.delete({ where: { id } });
-  revalidatePath('/admin/staff');
-  return { success: true, message: 'Staff removed' };
+export async function deleteStaff(id: string): Promise<StaffResult> {
+  try {
+    await prisma.staff.delete({ where: { id } });
+    revalidatePath('/admin/staff');
+    return { success: true, message: 'Staff deleted' };
+  } catch (e: any) {
+    return { success: false, message: e.message || 'Failed to delete' };
+  }
 }
