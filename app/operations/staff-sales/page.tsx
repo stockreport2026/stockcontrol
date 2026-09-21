@@ -1,94 +1,142 @@
 import { prisma } from '@/lib/db/prisma';
 import Decimal from 'decimal.js';
+import { StaffSalesForm } from './staff-sales-form';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export default async function StaffSalesPage({ searchParams }: { searchParams: { year?: string; month?: string; branchId?: string } }) {
-  const now = new Date();
-  const year = parseInt(searchParams.year ?? String(now.getFullYear()));
-  const month = parseInt(searchParams.month ?? '8');
-  const branchId = searchParams.branchId;
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  const [branches, sales] = await Promise.all([
+export default async function StaffSalesPage() {
+  const [branches, staff, records] = await Promise.all([
     prisma.branch.findMany({ orderBy: { name: 'asc' } }),
+    prisma.staff.findMany({ orderBy: { firstName: 'asc' } }),
     prisma.staffSales.findMany({
-      where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) },
-      include: { staff: true, branch: true },
-      orderBy: [{ variance: 'desc' }],
+      include: { branch: true, staff: true },
+      orderBy: [{ periodYear: 'desc' }, { periodMonth: 'desc' }, { staff: { firstName: 'asc' } }],
+      take: 50,
     }),
   ]);
 
-  const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const staffByBranch: Record<string, { id: string; label: string }[]> = {};
+  for (const b of branches) {
+    staffByBranch[b.id] = staff
+      .filter((s) => s.branchId === b.id)
+      .map((s) => ({ id: s.id, label: s.firstName + ' ' + s.lastName }));
+  }
+
+  // Group by period for the summary
+  const totalsByPeriod = records.reduce((acc, r) => {
+    const key = r.periodYear + '-' + r.periodMonth;
+    if (!acc[key]) {
+      acc[key] = {
+        year: r.periodYear,
+        month: r.periodMonth,
+        actual: new Decimal(0),
+        system: new Decimal(0),
+        count: 0,
+      };
+    }
+    acc[key].actual = acc[key].actual.plus(r.actualSales.toString());
+    acc[key].system = acc[key].system.plus(r.systemSales.toString());
+    acc[key].count += 1;
+    return acc;
+  }, {} as Record<string, { year: number; month: number; actual: Decimal; system: Decimal; count: number }>);
+
+  const periodSummaries = Object.values(totalsByPeriod).sort((a, b) =>
+    b.year - a.year || b.month - a.month
+  );
 
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Staff Sales Summary</h1>
-        <p className="text-slate-500 mt-1">Per-staff sales performance — {monthName}</p>
+        <h1 className="text-3xl font-bold text-slate-900">Individual Staff Sales</h1>
+        <p className="text-slate-500 mt-1">
+          Enter each staff member's total sales for a reporting period
+        </p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 p-4 mb-6">
-        <form method="get" className="flex gap-4 items-end flex-wrap">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Branch</label>
-            <select name="branchId" defaultValue={branchId ?? ''} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white min-w-[200px]">
-              <option value="">All Branches</option>
-              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Year</label>
-            <select name="year" defaultValue={year} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-              {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Month</label>
-            <select name="month" defaultValue={month} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'long' })}</option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" className="bg-slate-700 text-white px-4 py-2 rounded-md text-sm hover:bg-slate-600">Load</button>
-        </form>
-      </div>
+      <StaffSalesForm
+        branches={branches.map((b) => ({ id: b.id, label: b.name + ' (' + b.code + ')' }))}
+        staffByBranch={staffByBranch}
+      />
 
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Staff Performance ({sales.length})</h2>
+      {periodSummaries.length > 0 && (
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-5">
+          {periodSummaries.slice(0, 3).map((p) => {
+            const variance = p.actual.minus(p.system);
+            return (
+              <div key={p.year + '-' + p.month} className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
+                  {MONTHS[p.month - 1]} {p.year}
+                </p>
+                <p className="text-2xl font-bold mt-1 text-slate-900">
+                  KES {Number(p.actual.toFixed(2)).toLocaleString()}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {p.count} staff · system KES {Number(p.system.toFixed(2)).toLocaleString()}
+                </p>
+                <p className={'text-sm font-medium mt-2 ' + (variance.isNegative() ? 'text-rose-600' : 'text-emerald-600')}>
+                  Variance: {variance.isNegative() ? '' : '+'}{Number(variance.toFixed(2)).toLocaleString()}
+                </p>
+              </div>
+            );
+          })}
         </div>
-        {sales.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">No sales records for this period.</div>
+      )}
+
+      <div className="mt-8 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900">All Staff Sales Records ({records.length})</h2>
+        </div>
+        {records.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">
+            No staff sales recorded yet. Enter the first one above.
+          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Staff</th>
-                <th className="text-left px-6 py-3 font-medium text-slate-600">Branch</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Actual</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">System</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Variance</th>
-                <th className="text-right px-6 py-3 font-medium text-slate-600">Var %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sales.map((s) => {
-                const v = Number(s.variance);
-                const pct = Number(s.systemSales) === 0 ? 0 : (v / Number(s.systemSales)) * 100;
-                return (
-                  <tr key={s.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-6 py-3 font-medium text-slate-900">{s.staff.firstName} {s.staff.lastName}</td>
-                    <td className="px-6 py-3 text-slate-600">{s.branch.name}</td>
-                    <td className="px-6 py-3 text-right text-slate-900">{Number(s.actualSales).toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right text-slate-600">{Number(s.systemSales).toLocaleString()}</td>
-                    <td className={`px-6 py-3 text-right font-medium ${v >= 0 ? 'text-green-600' : 'text-red-600'}`}>{v >= 0 ? '+' : ''}{v.toLocaleString()}</td>
-                    <td className="px-6 py-3 text-right text-slate-600">{pct.toFixed(2)}%</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Period</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Staff</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Branch</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">From → To</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Actual</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">System</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Variance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r) => {
+                  const v = Number(r.variance);
+                  return (
+                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {MONTHS[r.periodMonth - 1]} {r.periodYear}
+                      </td>
+                      <td className="px-4 py-3 text-slate-900">
+                        {r.staff.firstName} {r.staff.lastName}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{r.branch.name}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">
+                        {new Date(r.periodStartDate).toLocaleDateString('en-GB')} → {new Date(r.periodEndDate).toLocaleDateString('en-GB')}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-900">
+                        {Number(r.actualSales).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {Number(r.systemSales).toLocaleString()}
+                      </td>
+                      <td className={'px-4 py-3 text-right font-medium ' + (v >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
+                        {v >= 0 ? '+' : ''}{v.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
