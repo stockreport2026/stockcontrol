@@ -12,7 +12,7 @@ const nav = [
       { name: 'Branch Sales', href: '/operations/branch-sales' },
       { name: 'Credit Sales', href: '/operations/credit-sales' },
       { name: 'Repayments', href: '/operations/repayments' },
-      { name: 'Stock Variances', href: '/operations/stock-variances' },
+      { name: 'Stock Position', href: '/operations/stock-position' },
       { name: 'Account Balance', href: '/operations/account-balance' },
       { name: 'Attendance', href: '/operations/attendance' },
     ],
@@ -20,9 +20,9 @@ const nav = [
   {
     section: 'Reconciliation',
     items: [
+      { name: 'Recovery & Stock Loss', href: '/reconciliation/recovery' },
+      { name: 'Staff Liability', href: '/reconciliation/staff-liability' },
       { name: 'Sales Reconciliation', href: '/reconciliation/sales' },
-      { name: 'Stock Reconciliation', href: '/reconciliation/stock' },
-      { name: 'Recovery & Liability', href: '/reconciliation/recovery' },
     ],
   },
   {

@@ -7,16 +7,18 @@ import { prisma } from '@/lib/db/prisma';
 
 const schema = z.object({
   branchId: z.string().min(1),
-  periodYear: z.coerce.number().int().min(2020).max(2100),
-  periodMonth: z.coerce.number().int().min(1).max(12),
+  periodYear: z.string().min(1),
+  periodMonth: z.string().min(1),
   periodStartDate: z.string().min(1),
   periodEndDate: z.string().min(1),
-  openingBalance: z.string(),
-  closingBalance: z.string(),
+  openingBalance: z.string().min(1),
+  closingBalance: z.string().min(1),
   additionalInfo: z.string().optional(),
 });
 
-export async function saveAccountBalance(formData: FormData) {
+export type ABResult = { success: boolean; message: string };
+
+export async function saveAccountBalance(formData: FormData): Promise<ABResult> {
   const parsed = schema.safeParse({
     branchId: formData.get('branchId'),
     periodYear: formData.get('periodYear'),
@@ -25,44 +27,56 @@ export async function saveAccountBalance(formData: FormData) {
     periodEndDate: formData.get('periodEndDate'),
     openingBalance: formData.get('openingBalance'),
     closingBalance: formData.get('closingBalance'),
-    additionalInfo: formData.get('additionalInfo'),
+    additionalInfo: formData.get('additionalInfo') || undefined,
   });
-
-  if (!parsed.success) {
-    return { success: false, message: 'Please fill all required fields correctly' };
-  }
+  if (!parsed.success) return { success: false, message: parsed.error.issues[0].message };
 
   const d = parsed.data;
-  const opening = new Decimal(d.openingBalance || '0');
-  const closing = new Decimal(d.closingBalance || '0');
+  let opening: Decimal, closing: Decimal;
+  try {
+    opening = new Decimal(d.openingBalance);
+    closing = new Decimal(d.closingBalance);
+  } catch {
+    return { success: false, message: 'Balances must be valid numbers' };
+  }
 
-  await prisma.accountBalance.upsert({
-    where: {
-      branchId_periodYear_periodMonth: {
-        branchId: d.branchId,
-        periodYear: d.periodYear,
-        periodMonth: d.periodMonth,
-      },
-    },
-    create: {
-      branchId: d.branchId,
-      periodYear: d.periodYear,
-      periodMonth: d.periodMonth,
-      periodStartDate: new Date(d.periodStartDate),
-      periodEndDate: new Date(d.periodEndDate),
-      openingBalance: opening,
-      closingBalance: closing,
-      additionalInfo: d.additionalInfo || null,
-    },
-    update: {
-      periodStartDate: new Date(d.periodStartDate),
-      periodEndDate: new Date(d.periodEndDate),
-      openingBalance: opening,
-      closingBalance: closing,
-      additionalInfo: d.additionalInfo || null,
-    },
-  });
+  const year = parseInt(d.periodYear);
+  const month = parseInt(d.periodMonth);
 
-  revalidatePath('/operations/account-balance');
-  return { success: true, message: 'Account balance saved' };
+  try {
+    const existing = await prisma.accountBalance.findFirst({
+      where: { branchId: d.branchId, periodYear: year, periodMonth: month },
+    });
+
+    if (existing) {
+      await prisma.accountBalance.update({
+        where: { id: existing.id },
+        data: {
+          periodStartDate: new Date(d.periodStartDate),
+          periodEndDate: new Date(d.periodEndDate),
+          openingBalance: opening,
+          closingBalance: closing,
+          additionalInfo: d.additionalInfo || null,
+        },
+      });
+    } else {
+      await prisma.accountBalance.create({
+        data: {
+          branchId: d.branchId,
+          periodYear: year,
+          periodMonth: month,
+          periodStartDate: new Date(d.periodStartDate),
+          periodEndDate: new Date(d.periodEndDate),
+          openingBalance: opening,
+          closingBalance: closing,
+          additionalInfo: d.additionalInfo || null,
+        },
+      });
+    }
+
+    revalidatePath('/operations/account-balance');
+    return { success: true, message: existing ? 'Account balance updated' : 'Account balance saved' };
+  } catch (e: any) {
+    return { success: false, message: e.message || 'Failed to save' };
+  }
 }

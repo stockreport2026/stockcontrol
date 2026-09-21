@@ -1,188 +1,196 @@
 import { prisma } from '@/lib/db/prisma';
 import Decimal from 'decimal.js';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export default async function RecoveryPage({ searchParams }: { searchParams: { year?: string; month?: string; branchId?: string } }) {
-  const year = parseInt(searchParams.year ?? '2026');
-  const month = parseInt(searchParams.month ?? '8');
-  const branchId = searchParams.branchId;
+function fmt(n: string | number) {
+  return Number(n).toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
 
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0, 23, 59, 59);
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+export default async function RecoveryPage() {
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
 
-  const [sales, creditSales, repayments, varianceItems, accounts] = await Promise.all([
-    prisma.staffSales.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
-    prisma.creditSale.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
-    prisma.repayment.findMany({ where: { ...(branchId ? { branchId } : {}) } }),
-    prisma.stockVarianceItem.findMany({
-      where: {
-        ...(branchId ? { branchId } : {}),
-        periodStartDate: { lte: endDate },
-        periodEndDate: { gte: startDate },
-      },
-    }),
-    prisma.accountBalance.findMany({ where: { periodYear: year, periodMonth: month, ...(branchId ? { branchId } : {}) } }),
-  ]);
-
-  const branchIds = new Set<string>();
-  sales.forEach((s) => branchIds.add(s.branchId));
-  varianceItems.forEach((s) => branchIds.add(s.branchId));
-  accounts.forEach((a) => branchIds.add(a.branchId));
-
-  const rows: any[] = [];
-  const totals = { excess: new Decimal(0), loss: new Decimal(0), recovery: new Decimal(0), remaining: new Decimal(0), opening: new Decimal(0), closing: new Decimal(0) };
-
-  for (const bid of branchIds) {
-    const branch = branches.find((b) => b.id === bid);
-    if (!branch) continue;
-
-    const branchSales = sales.filter((s) => s.branchId === bid);
-    const branchCredit = creditSales.filter((c) => c.branchId === bid);
-    const branchRepay = repayments.filter((r) => r.branchId === bid);
-    const branchItems = varianceItems.filter((v) => v.branchId === bid);
-
-    const excessSales = branchSales.reduce((sum, s) => {
-      const staffCredit = branchCredit.filter((c) => c.staffId === s.staffId).reduce((a, c) => a.plus(c.amount.toString()), new Decimal(0));
-      const staffRepay = branchRepay.filter((r) => r.staffId === s.staffId).reduce((a, r) => a.plus(r.amount.toString()), new Decimal(0));
-      const adjSystem = new Decimal(s.systemSales.toString()).minus(staffCredit);
-      const adjActual = new Decimal(s.actualSales.toString()).minus(staffRepay);
-      const variance = adjActual.minus(adjSystem);
-      return variance.isPositive() ? sum.plus(variance) : sum;
-    }, new Decimal(0));
-
-    let stockLoss = new Decimal(0);
-    for (const item of branchItems) {
-      const v = new Decimal(item.varianceValue.toString());
-      if (v.isPositive()) stockLoss = stockLoss.plus(v);
-    }
-
-    const recovery = Decimal.min(excessSales, stockLoss);
-    const remaining = Decimal.max(stockLoss.minus(recovery), 0);
-    const bAccount = accounts.find((a) => a.branchId === bid);
-    const opening = new Decimal(bAccount?.openingBalance.toString() ?? '0');
-    const closing = opening.plus(remaining);
-    const recoveryRate = stockLoss.isZero() ? new Decimal(0) : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
-
-    rows.push({
-      branchId: bid, branchName: branch.name,
-      excess: Number(excessSales.toFixed(2)), loss: Number(stockLoss.toFixed(2)),
-      recovery: Number(recovery.toFixed(2)), remaining: Number(remaining.toFixed(2)),
-      recoveryRate: Number(recoveryRate.toFixed(2)), opening: Number(opening.toFixed(2)), closing: Number(closing.toFixed(2)),
+  const rows = [];
+  for (const branch of branches) {
+    // Latest stock position for this branch
+    const stock = await prisma.stockPosition.findFirst({
+      where: { branchId: branch.id },
+      orderBy: { periodEndDate: 'desc' },
     });
 
-    totals.excess = totals.excess.plus(excessSales);
-    totals.loss = totals.loss.plus(stockLoss);
-    totals.recovery = totals.recovery.plus(recovery);
-    totals.remaining = totals.remaining.plus(remaining);
-    totals.opening = totals.opening.plus(opening);
-    totals.closing = totals.closing.plus(closing);
+    let stockLoss = new Decimal(0);
+    let stockSurplus = new Decimal(0);
+    if (stock) {
+      const opening = new Decimal(stock.openingStockValue.toString());
+      const closing = new Decimal(stock.closingStockValue.toString());
+      const variance = opening.minus(closing); // positive = loss
+      stockLoss = Decimal.max(variance, 0);
+      stockSurplus = Decimal.max(variance.negated(), 0);
+    }
+
+    // Excess sales = sum of POSITIVE variances from staff sales
+    const salesForPeriod = stock
+      ? await prisma.staffSales.findMany({
+          where: {
+            branchId: branch.id,
+            periodStartDate: stock.periodStartDate,
+            periodEndDate: stock.periodEndDate,
+          },
+        })
+      : [];
+
+    let excessSales = new Decimal(0);
+    let shortSales = new Decimal(0);
+    for (const s of salesForPeriod) {
+      const v = new Decimal(s.variance.toString());
+      if (v.isPositive()) excessSales = excessSales.plus(v);
+      else shortSales = shortSales.plus(v.abs());
+    }
+
+    // Recovery = MIN(Excess Sales, Stock Loss)
+    const recovery = Decimal.min(excessSales, stockLoss);
+    const remainingLoss = Decimal.max(stockLoss.minus(recovery), 0);
+    const recoverySurplus = Decimal.max(excessSales.minus(stockLoss), 0);
+    const recoveryRate = stockLoss.isZero()
+      ? new Decimal(0)
+      : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
+
+    rows.push({
+      id: branch.id,
+      name: branch.name,
+      code: branch.code,
+      stockBefore: stock ? new Decimal(stock.openingStockValue.toString()).toFixed(2) : '0',
+      stockAfter: stock ? new Decimal(stock.closingStockValue.toString()).toFixed(2) : '0',
+      stockLoss: stockLoss.toFixed(2),
+      stockSurplus: stockSurplus.toFixed(2),
+      excessSales: excessSales.toFixed(2),
+      shortSales: shortSales.toFixed(2),
+      recovery: recovery.toFixed(2),
+      remainingLoss: remainingLoss.toFixed(2),
+      surplus: recoverySurplus.toFixed(2),
+      recoveryRate: recoveryRate.toFixed(2),
+      hasStock: !!stock,
+      periodEnd: stock?.periodEndDate ?? null,
+    });
   }
 
-  const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const totals = rows.reduce(
+    (acc, r) => ({
+      loss: acc.loss.plus(r.stockLoss),
+      excess: acc.excess.plus(r.excessSales),
+      recovery: acc.recovery.plus(r.recovery),
+      remaining: acc.remaining.plus(r.remainingLoss),
+    }),
+    { loss: new Decimal(0), excess: new Decimal(0), recovery: new Decimal(0), remaining: new Decimal(0) }
+  );
+
+  const totalRate = totals.loss.isZero()
+    ? new Decimal(0)
+    : Decimal.min(totals.recovery.dividedBy(totals.loss).times(100), 100);
 
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Stock Loss Recovery & Liability</h1>
-        <p className="text-slate-500 mt-1">Recovery Engine — {monthName}</p>
+        <h1 className="text-3xl font-bold text-slate-900">Recovery &amp; Liability</h1>
+        <p className="text-slate-500 mt-1">
+          Positive sales variance recovers the stock loss. Remaining loss carries into Account Balance.
+        </p>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 p-4 mb-6">
-        <form method="get" className="flex gap-4 items-end flex-wrap">
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Branch</label>
-            <select name="branchId" defaultValue={branchId ?? ''} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white min-w-[200px]">
-              <option value="">All Branches</option>
-              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Year</label>
-            <select name="year" defaultValue={year} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-              {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Month</label>
-            <select name="month" defaultValue={month} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'long' })}</option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" className="bg-slate-700 text-white px-4 py-2 rounded-md text-sm hover:bg-slate-600">Apply</button>
-        </form>
-      </div>
-
-      <div className="grid grid-cols-3 gap-5 mb-6">
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Total Stock Loss</p>
-          <p className="text-2xl font-bold mt-1 text-red-600">KES {Number(totals.loss.toFixed(2)).toLocaleString()}</p>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-6">
+        <div className="bg-gradient-to-br from-rose-50 to-white rounded-xl border border-rose-100 p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wider text-rose-700 font-semibold">Stock Loss</p>
+          <p className="text-2xl font-bold mt-1 text-rose-700">KES {fmt(totals.loss.toFixed(2))}</p>
         </div>
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Total Recovery Applied</p>
-          <p className="text-2xl font-bold mt-1 text-green-600">KES {Number(totals.recovery.toFixed(2)).toLocaleString()}</p>
+        <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100 p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wider text-emerald-700 font-semibold">Excess Sales</p>
+          <p className="text-2xl font-bold mt-1 text-emerald-700">KES {fmt(totals.excess.toFixed(2))}</p>
         </div>
-        <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm">
-          <p className="text-sm text-slate-500 font-medium">Unrecovered → Main Debt</p>
-          <p className="text-2xl font-bold mt-1 text-red-600">KES {Number(totals.remaining.toFixed(2)).toLocaleString()}</p>
+        <div className="bg-gradient-to-br from-sky-50 to-white rounded-xl border border-sky-100 p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wider text-sky-700 font-semibold">Recovery Applied</p>
+          <p className="text-2xl font-bold mt-1 text-sky-700">KES {fmt(totals.recovery.toFixed(2))}</p>
+          <p className="text-xs text-sky-600 mt-1">Rate: {totalRate.toFixed(2)}%</p>
+        </div>
+        <div className="bg-gradient-to-br from-slate-100 to-white rounded-xl border border-slate-200 p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wider text-slate-700 font-semibold">Remaining → Account</p>
+          <p className="text-2xl font-bold mt-1 text-slate-900">KES {fmt(totals.remaining.toFixed(2))}</p>
         </div>
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Recovery & Liability by Branch ({rows.length})</h2>
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Per-Branch Recovery</h2>
+          <Link href="/operations/account-balance" className="text-xs text-slate-500 hover:text-slate-900">
+            View Account Balance →
+          </Link>
         </div>
+
         {rows.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">No recovery data for this period.</div>
+          <div className="p-12 text-center text-slate-500">No branches yet.</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Branch</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Excess Sales</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Stock Loss</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Recovery</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Rec %</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Remaining</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Opening Debt</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Closing Debt</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.branchId} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-900">{r.branchName}</td>
-                  <td className="px-4 py-3 text-right text-green-600">+{Number(r.excess).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-red-600">{Number(r.loss).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-green-600 font-medium">{Number(r.recovery).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${r.recoveryRate >= 100 ? 'bg-green-100 text-green-700' : r.recoveryRate >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                      {r.recoveryRate.toFixed(0)}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-red-600 font-medium">{Number(r.remaining).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{Number(r.opening).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-slate-900 font-bold">{Number(r.closing).toLocaleString()}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Branch</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Stock Loss</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Excess Sales</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Recovery</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Remaining</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Rate</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Status</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot className="bg-slate-900 text-white font-bold">
-              <tr>
-                <td className="px-4 py-3 text-xs uppercase tracking-wider">Totals</td>
-                <td className="px-4 py-3 text-right">{Number(totals.excess.toFixed(2)).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{Number(totals.loss.toFixed(2)).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{Number(totals.recovery.toFixed(2)).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-xs">{totals.loss.isZero() ? '100' : Number(totals.recovery.dividedBy(totals.loss).times(100).toFixed(0))}%</td>
-                <td className="px-4 py-3 text-right">{Number(totals.remaining.toFixed(2)).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{Number(totals.opening.toFixed(2)).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{Number(totals.closing.toFixed(2)).toLocaleString()}</td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const rem = parseFloat(r.remainingLoss);
+                  const loss = parseFloat(r.stockLoss);
+                  return (
+                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-slate-900">{r.name}</div>
+                        <div className="text-xs text-slate-500">{r.code}</div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-rose-600 font-medium">
+                        {loss > 0 ? fmt(r.stockLoss) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-emerald-600">
+                        {Number(r.excessSales) > 0 ? fmt(r.excessSales) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-900 font-medium">{fmt(r.recovery)}</td>
+                      <td className={'px-4 py-3 text-right font-medium ' + (rem > 0 ? 'text-rose-600' : 'text-slate-400')}>
+                        {rem > 0 ? fmt(r.remainingLoss) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">{r.recoveryRate}%</td>
+                      <td className="px-4 py-3 text-right">
+                        {!r.hasStock ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                            No stocktake
+                          </span>
+                        ) : rem > 0 ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
+                            Carries to account
+                          </span>
+                        ) : loss > 0 ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                            ✓ Recovered
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+                            No loss
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
