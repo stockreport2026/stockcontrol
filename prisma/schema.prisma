@@ -41,7 +41,6 @@ model Branch {
   stockPositions     StockPosition[]
   stockVarianceItems StockVarianceItem[]
   reportDrafts       ReportDraft[]
-  reportDrafts       ReportDraft[]
   @@unique([organizationId, code])
 }
 
