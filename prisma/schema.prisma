@@ -40,6 +40,7 @@ model Branch {
   accountBalances    AccountBalance[]
   stockPositions     StockPosition[]
   stockVarianceItems StockVarianceItem[]
+  reportDrafts       ReportDraft[]
   @@unique([organizationId, code])
 }
 
@@ -289,5 +290,18 @@ model AccountBalance {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@unique([branchId, periodYear, periodMonth])
+}
+
+model ReportDraft {
+  id          String   @id @default(cuid())
+  branchId    String
+  periodYear  Int
+  periodMonth Int
+  notes       String?  @db.Text
+  adjustments String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   @@unique([branchId, periodYear, periodMonth])
 }

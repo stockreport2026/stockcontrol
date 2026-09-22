@@ -25,15 +25,25 @@ export default async function SalesReconciliationPage() {
         saleDate: { gte: s.periodStartDate, lte: s.periodEndDate },
       },
     });
-    const creditTotal = credits.reduce(
-      (sum, c) => sum.plus(c.amount.toString()),
-      new Decimal(0)
-    );
+    const repayments = await prisma.repayment.findMany({
+      where: {
+        staffId: s.staffId,
+        paymentDate: { gte: s.periodStartDate, lte: s.periodEndDate },
+      },
+    });
+
+    const creditTotal = credits.reduce((sum, c) => sum.plus(c.amount.toString()), new Decimal(0));
+    const repaymentTotal = repayments.reduce((sum, r) => sum.plus(r.amount.toString()), new Decimal(0));
 
     const actual = new Decimal(s.actualSales.toString());
     const system = new Decimal(s.systemSales.toString());
-    const rawVariance = actual.minus(system);
-    const netVariance = rawVariance.plus(creditTotal);
+
+    // Adjusted Actual = Actual + Credit − Repayments
+    const adjustedActual = actual.plus(creditTotal).minus(repaymentTotal);
+
+    // Net Variance = Adjusted Actual − System
+    const netVariance = adjustedActual.minus(system);
+
     const netRate = system.isZero()
       ? new Decimal(0)
       : netVariance.dividedBy(system).times(100);
@@ -41,8 +51,6 @@ export default async function SalesReconciliationPage() {
     let status = 'Balanced';
     if (netVariance.isPositive()) status = 'Surplus';
     else if (netVariance.isNegative()) status = 'Short';
-    if (creditTotal.isPositive() && rawVariance.isNegative() && netVariance.greaterThanOrEqualTo(0))
-      status = 'Cleared by credit';
 
     rows.push({
       id: s.id,
@@ -51,8 +59,9 @@ export default async function SalesReconciliationPage() {
       periodLabel: MONTHS[s.periodMonth - 1] + ' ' + s.periodYear,
       actual: actual.toFixed(2),
       system: system.toFixed(2),
-      rawVariance: rawVariance.toFixed(2),
       credit: creditTotal.toFixed(2),
+      repayments: repaymentTotal.toFixed(2),
+      adjustedActual: adjustedActual.toFixed(2),
       netVariance: netVariance.toFixed(2),
       netRate: netRate.toFixed(2),
       status,
@@ -65,20 +74,16 @@ export default async function SalesReconciliationPage() {
     (acc, r) => ({
       actual: acc.actual.plus(r.actual),
       system: acc.system.plus(r.system),
-      rawVariance: acc.rawVariance.plus(r.rawVariance),
       credit: acc.credit.plus(r.credit),
+      repayments: acc.repayments.plus(r.repayments),
       netVariance: acc.netVariance.plus(r.netVariance),
       surplus: acc.surplus.plus(r.isSurplus ? r.netVariance : '0'),
-      short: acc.short.plus(r.isShort ? r.netVariance.abs() : '0'),
+      short: acc.short.plus(r.isShort ? new Decimal(r.netVariance).abs() : '0'),
     }),
     {
-      actual: new Decimal(0),
-      system: new Decimal(0),
-      rawVariance: new Decimal(0),
-      credit: new Decimal(0),
-      netVariance: new Decimal(0),
-      surplus: new Decimal(0),
-      short: new Decimal(0),
+      actual: new Decimal(0), system: new Decimal(0),
+      credit: new Decimal(0), repayments: new Decimal(0),
+      netVariance: new Decimal(0), surplus: new Decimal(0), short: new Decimal(0),
     }
   );
 
@@ -87,7 +92,7 @@ export default async function SalesReconciliationPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Sales Reconciliation</h1>
         <p className="text-slate-500 mt-1">
-          Net Variance = (Actual + Credit Sales) − System Sales. Positive net variance is surplus available for recovery.
+          Net Variance = (Actual + Credit − Repayments) − System. Positive = surplus for recovery. Negative = staff liability.
         </p>
       </div>
 
@@ -103,7 +108,7 @@ export default async function SalesReconciliationPage() {
         <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100 p-5 shadow-sm">
           <p className="text-xs uppercase tracking-wider text-emerald-700 font-semibold">Surplus (Net)</p>
           <p className="text-2xl font-bold mt-1 text-emerald-700">KES {fmt(totals.surplus.toFixed(2))}</p>
-          <p className="text-xs text-emerald-600 mt-1">Used to recover stock loss</p>
+          <p className="text-xs text-emerald-600 mt-1">Used for stock loss recovery</p>
         </div>
         <div className="bg-gradient-to-br from-rose-50 to-white rounded-xl border border-rose-100 p-5 shadow-sm">
           <p className="text-xs uppercase tracking-wider text-rose-700 font-semibold">Short (Net)</p>
@@ -130,10 +135,10 @@ export default async function SalesReconciliationPage() {
                   <th className="text-left px-3 py-3 font-medium text-slate-600">Branch</th>
                   <th className="text-left px-3 py-3 font-medium text-slate-600">Period</th>
                   <th className="text-right px-3 py-3 font-medium text-slate-600">Actual</th>
-                  <th className="text-right px-3 py-3 font-medium text-slate-600">System</th>
-                  <th className="text-right px-3 py-3 font-medium text-slate-600">Raw Var</th>
                   <th className="text-right px-3 py-3 font-medium text-slate-600">+ Credit</th>
-                  <th className="text-right px-3 py-3 font-medium text-slate-600 bg-slate-100">Net Variance</th>
+                  <th className="text-right px-3 py-3 font-medium text-slate-600">− Repay</th>
+                  <th className="text-right px-3 py-3 font-medium text-slate-600">System</th>
+                  <th className="text-right px-3 py-3 font-medium text-slate-600 bg-slate-100">Net Var</th>
                   <th className="text-right px-3 py-3 font-medium text-slate-600">Status</th>
                 </tr>
               </thead>
@@ -146,13 +151,13 @@ export default async function SalesReconciliationPage() {
                       <td className="px-3 py-3 text-slate-600 text-xs">{r.branchName}</td>
                       <td className="px-3 py-3 text-slate-500 text-xs">{r.periodLabel}</td>
                       <td className="px-3 py-3 text-right text-slate-700">{fmt(r.actual)}</td>
-                      <td className="px-3 py-3 text-right text-slate-600">{fmt(r.system)}</td>
-                      <td className={'px-3 py-3 text-right ' + (parseFloat(r.rawVariance) >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
-                        {parseFloat(r.rawVariance) >= 0 ? '+' : ''}{fmt(r.rawVariance)}
-                      </td>
                       <td className="px-3 py-3 text-right text-sky-600">
                         {Number(r.credit) > 0 ? '+' + fmt(r.credit) : '—'}
                       </td>
+                      <td className="px-3 py-3 text-right text-amber-600">
+                        {Number(r.repayments) > 0 ? '−' + fmt(r.repayments) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-right text-slate-600">{fmt(r.system)}</td>
                       <td className={'px-3 py-3 text-right font-bold bg-slate-50 ' + (netV > 0 ? 'text-emerald-700' : netV < 0 ? 'text-rose-700' : 'text-slate-500')}>
                         {netV === 0 ? '—' : (netV > 0 ? '+' : '') + fmt(r.netVariance)}
                       </td>
@@ -162,9 +167,6 @@ export default async function SalesReconciliationPage() {
                         )}
                         {r.status === 'Short' && (
                           <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">Short</span>
-                        )}
-                        {r.status === 'Cleared by credit' && (
-                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">Cleared by credit</span>
                         )}
                         {r.status === 'Balanced' && (
                           <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Balanced</span>
