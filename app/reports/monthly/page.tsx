@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 export default async function MonthlyReportsPage() {
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
   const now = new Date();
-  const defaultYear = now.getFullYear();
-  const defaultMonth = now.getMonth() === 0 ? 12 : now.getMonth();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
 
   return (
     <div>
@@ -32,18 +32,14 @@ export default async function MonthlyReportsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Year</label>
-                <select name="year" defaultValue={defaultYear} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-                  {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Period From</label>
+                <input type="date" name="from" required defaultValue={firstOfMonth}
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Month</label>
-                <select name="month" defaultValue={defaultMonth} className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'long' })}</option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Period To</label>
+                <input type="date" name="to" required defaultValue={lastOfMonth}
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white" />
               </div>
             </div>
             <button type="submit" className="w-full bg-slate-900 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-slate-700">
@@ -62,18 +58,14 @@ export default async function MonthlyReportsPage() {
           <form action="/reports/company" className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-200 mb-1">Year</label>
-                <select name="year" defaultValue={defaultYear} className="w-full border border-slate-600 rounded-md px-3 py-2 text-sm bg-slate-700 text-white">
-                  {[2024, 2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
+                <label className="block text-sm font-medium text-slate-200 mb-1">Period From</label>
+                <input type="date" name="from" required defaultValue={firstOfMonth}
+                  className="w-full border border-slate-600 rounded-md px-3 py-2 text-sm bg-slate-700 text-white" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-200 mb-1">Month</label>
-                <select name="month" defaultValue={defaultMonth} className="w-full border border-slate-600 rounded-md px-3 py-2 text-sm bg-slate-700 text-white">
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>{new Date(2000, m - 1, 1).toLocaleDateString('en-GB', { month: 'long' })}</option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-slate-200 mb-1">Period To</label>
+                <input type="date" name="to" required defaultValue={lastOfMonth}
+                  className="w-full border border-slate-600 rounded-md px-3 py-2 text-sm bg-slate-700 text-white" />
               </div>
             </div>
             <button type="submit" className="w-full bg-emerald-500 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-emerald-400">
