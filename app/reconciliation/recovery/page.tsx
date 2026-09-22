@@ -1,6 +1,7 @@
-import { prisma } from '@/lib/db/prisma';
 import Decimal from 'decimal.js';
 import Link from 'next/link';
+import { prisma } from '@/lib/db/prisma';
+import { computeBranchRecovery } from '@/lib/recovery';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -11,75 +12,7 @@ function fmt(n: string | number) {
 
 export default async function RecoveryPage() {
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
-
-  const rows = [];
-  for (const branch of branches) {
-    const stock = await prisma.stockPosition.findFirst({
-      where: { branchId: branch.id },
-      orderBy: { periodEndDate: 'desc' },
-    });
-
-    let stockLoss = new Decimal(0);
-    if (stock) {
-      const before = new Decimal(stock.openingStockValue.toString());
-      const after = new Decimal(stock.closingStockValue.toString());
-      stockLoss = Decimal.max(before.minus(after), 0);
-    }
-
-    let excessSales = new Decimal(0);
-    let shortSales = new Decimal(0);
-
-    if (stock) {
-      const staffSalesInPeriod = await prisma.staffSales.findMany({
-        where: {
-          branchId: branch.id,
-          periodStartDate: stock.periodStartDate,
-          periodEndDate: stock.periodEndDate,
-        },
-      });
-
-      for (const s of staffSalesInPeriod) {
-        const credits = await prisma.creditSale.findMany({
-          where: { staffId: s.staffId, saleDate: { gte: s.periodStartDate, lte: s.periodEndDate } },
-        });
-        const repayments = await prisma.repayment.findMany({
-          where: { staffId: s.staffId, paymentDate: { gte: s.periodStartDate, lte: s.periodEndDate } },
-        });
-        const creditTotal = credits.reduce((sum, c) => sum.plus(c.amount.toString()), new Decimal(0));
-        const repaymentTotal = repayments.reduce((sum, r) => sum.plus(r.amount.toString()), new Decimal(0));
-
-        // Net = (Actual + Credit − Repayments) − System
-        const netVar = new Decimal(s.actualSales.toString())
-          .plus(creditTotal)
-          .minus(repaymentTotal)
-          .minus(s.systemSales.toString());
-
-        if (netVar.isPositive()) excessSales = excessSales.plus(netVar);
-        else shortSales = shortSales.plus(netVar.abs());
-      }
-    }
-
-    const recovery = Decimal.min(excessSales, stockLoss);
-    const remainingLoss = Decimal.max(stockLoss.minus(recovery), 0);
-    const surplus = Decimal.max(excessSales.minus(stockLoss), 0);
-    const recoveryRate = stockLoss.isZero()
-      ? new Decimal(0)
-      : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
-
-    rows.push({
-      id: branch.id,
-      name: branch.name,
-      code: branch.code,
-      stockLoss: stockLoss.toFixed(2),
-      excessSales: excessSales.toFixed(2),
-      shortSales: shortSales.toFixed(2),
-      recovery: recovery.toFixed(2),
-      remainingLoss: remainingLoss.toFixed(2),
-      surplus: surplus.toFixed(2),
-      recoveryRate: recoveryRate.toFixed(2),
-      hasStock: !!stock,
-    });
-  }
+  const rows = (await Promise.all(branches.map((b) => computeBranchRecovery(b.id)))).filter(Boolean) as any[];
 
   const totals = rows.reduce(
     (acc, r) => ({
@@ -100,7 +33,7 @@ export default async function RecoveryPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Recovery &amp; Stock Loss</h1>
         <p className="text-slate-500 mt-1">
-          Stock Loss from Stock Position, offset by net surplus (credit and repayments already factored in).
+          Stock Loss offset by net surplus sales (credit and repayments factored). Remaining carries to Account.
         </p>
       </div>
 
@@ -153,10 +86,10 @@ export default async function RecoveryPage() {
                   const loss = parseFloat(r.stockLoss);
                   const rem = parseFloat(r.remainingLoss);
                   return (
-                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <tr key={r.branchId} className="border-t border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900">{r.name}</div>
-                        <div className="text-xs text-slate-500">{r.code}</div>
+                        <div className="font-medium text-slate-900">{r.branchName}</div>
+                        <div className="text-xs text-slate-500">{r.branchCode}</div>
                       </td>
                       <td className="px-4 py-3 text-right text-rose-600 font-medium">
                         {loss > 0 ? fmt(r.stockLoss) : '—'}

@@ -1,5 +1,6 @@
-import { prisma } from '@/lib/db/prisma';
 import Decimal from 'decimal.js';
+import { prisma } from '@/lib/db/prisma';
+import { computeBranchRecovery } from '@/lib/recovery';
 import { AdjustmentPanel } from './adjustment-panel';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ export default async function CompanyReportPage({
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Company Report</h1>
         <div className="mt-8 bg-amber-50 border border-amber-200 rounded-lg p-6 text-amber-800 text-sm">
-          Add a branch first to generate a report.
+          Add a branch first.
         </div>
       </div>
     );
@@ -35,81 +36,73 @@ export default async function CompanyReportPage({
   const month = parseInt(searchParams.month || String(now.getMonth() + 1));
   const branch = branches.find((b) => b.id === branchId) || branches[0];
 
-  // ── Fetch all data for this branch + period ──
-  const [staffSales, branchSales, stockPosition, accountBalance, creditSales, repayments, attendance, stockItems, draft] = await Promise.all([
-    prisma.staffSales.findMany({
-      where: { branchId: branch.id, periodYear: year, periodMonth: month },
-      include: { staff: true },
-    }),
-    prisma.branchSales.findFirst({
-      where: { branchId: branch.id, periodYear: year, periodMonth: month },
-    }),
-    prisma.stockPosition.findFirst({
-      where: { branchId: branch.id },
-      orderBy: { periodEndDate: 'desc' },
-    }),
-    prisma.accountBalance.findFirst({
-      where: { branchId: branch.id, periodYear: year, periodMonth: month },
-    }),
-    prisma.creditSale.findMany({
-      where: { branchId: branch.id },
-    }),
-    prisma.repayment.findMany({
-      where: { branchId: branch.id },
-    }),
-    prisma.attendance.findMany({
-      where: { branchId: branch.id },
-      include: { staff: true },
-    }),
-    prisma.stockVarianceItem.findMany({
-      where: { branchId: branch.id },
-    }),
-    prisma.reportDraft.findFirst({
-      where: { branchId: branch.id, periodYear: year, periodMonth: month },
-    }),
-  ]);
+  // ═════ Use the SAME recovery engine as /reconciliation/recovery ═════
+  const recovery = await computeBranchRecovery(branch.id);
 
-  // ── Sales Analysis ──
+  // Staff sales for this branch+period
+  const staffSales = await prisma.staffSales.findMany({
+    where: { branchId: branch.id, periodYear: year, periodMonth: month },
+    include: { staff: true },
+  });
+
+  // Credit + repayments scoped to the same period as staff sales entries
+  const creditSales = await prisma.creditSale.findMany({ where: { branchId: branch.id } });
+  const repayments = await prisma.repayment.findMany({ where: { branchId: branch.id } });
+
   const staffActual = staffSales.reduce((s, x) => s.plus(x.actualSales.toString()), new Decimal(0));
   const staffSystem = staffSales.reduce((s, x) => s.plus(x.systemSales.toString()), new Decimal(0));
-  const staffRawVariance = staffActual.minus(staffSystem);
 
   let staffCredit = new Decimal(0);
   let staffRepay = new Decimal(0);
   for (const s of staffSales) {
-    const c = creditSales.filter((x) => x.staffId === s.staffId)
-      .reduce((sum, x) => sum.plus(x.amount.toString()), new Decimal(0));
-    const r = repayments.filter((x) => x.staffId === s.staffId)
-      .reduce((sum, x) => sum.plus(x.amount.toString()), new Decimal(0));
-    staffCredit = staffCredit.plus(c);
-    staffRepay = staffRepay.plus(r);
+    staffCredit = staffCredit.plus(
+      creditSales.filter((x) => x.staffId === s.staffId && x.saleDate >= s.periodStartDate && x.saleDate <= s.periodEndDate)
+        .reduce((sum, x) => sum.plus(x.amount.toString()), new Decimal(0))
+    );
+    staffRepay = staffRepay.plus(
+      repayments.filter((x) => x.staffId === s.staffId && x.paymentDate >= s.periodStartDate && x.paymentDate <= s.periodEndDate)
+        .reduce((sum, x) => sum.plus(x.amount.toString()), new Decimal(0))
+    );
   }
   const staffNetVariance = staffActual.plus(staffCredit).minus(staffRepay).minus(staffSystem);
 
-  // ── Stock Loss ──
-  let stockLoss = new Decimal(0);
-  if (stockPosition) {
-    const before = new Decimal(stockPosition.openingStockValue.toString());
-    const after = new Decimal(stockPosition.closingStockValue.toString());
-    stockLoss = Decimal.max(before.minus(after), 0);
-  }
+  const accountBalance = await prisma.accountBalance.findFirst({
+    where: { branchId: branch.id, periodYear: year, periodMonth: month },
+  });
+  const stockItems = await prisma.stockVarianceItem.findMany({ where: { branchId: branch.id } });
+  const draft = await prisma.reportDraft.findFirst({
+    where: { branchId: branch.id, periodYear: year, periodMonth: month },
+  });
 
-  // ── Recovery ──
-  const excessSales = Decimal.max(staffNetVariance, 0);
-  const recovery = Decimal.min(excessSales, stockLoss);
-  const remainingLoss = Decimal.max(stockLoss.minus(recovery), 0);
-  const recoveryRate = stockLoss.isZero()
+  // ═════ Computed values from recovery helper ═════
+  const stockLoss = new Decimal(recovery?.stockLoss ?? '0');
+  const excessSales = new Decimal(recovery?.excessSales ?? '0');
+  const computedRecovery = new Decimal(recovery?.recovery ?? '0');
+  const computedRemainingLoss = new Decimal(recovery?.remainingLoss ?? '0');
+  const computedOpening = accountBalance ? new Decimal(accountBalance.openingBalance.toString()) : new Decimal(0);
+  const computedClosing = accountBalance ? new Decimal(accountBalance.closingBalance.toString()) : new Decimal(0);
+
+  // ═════ Apply overrides if enabled ═════
+  const useOverrides = draft?.applyOverrides === true;
+  const finalStockLoss = useOverrides && draft?.overrideStockLoss ? new Decimal(draft.overrideStockLoss.toString()) : stockLoss;
+  const finalExcessSales = useOverrides && draft?.overrideExcessSales ? new Decimal(draft.overrideExcessSales.toString()) : excessSales;
+  const finalRecovery = useOverrides && draft?.overrideRecovery ? new Decimal(draft.overrideRecovery.toString()) : computedRecovery;
+  const finalRemainingLoss = useOverrides && draft?.overrideRemainingLoss ? new Decimal(draft.overrideRemainingLoss.toString()) : computedRemainingLoss;
+  const finalOpening = useOverrides && draft?.overrideOpeningBal ? new Decimal(draft.overrideOpeningBal.toString()) : computedOpening;
+  const finalClosing = useOverrides && draft?.overrideClosingBal ? new Decimal(draft.overrideClosingBal.toString()) : computedClosing;
+
+  const adjustedClosing = finalClosing.plus(finalRemainingLoss);
+  const debtReduced = finalOpening.minus(adjustedClosing);
+  const recoveryRate = finalStockLoss.isZero()
     ? new Decimal(0)
-    : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
-
-  // ── Account ──
-  const openingBal = accountBalance ? new Decimal(accountBalance.openingBalance.toString()) : new Decimal(0);
-  const baseClosing = accountBalance ? new Decimal(accountBalance.closingBalance.toString()) : new Decimal(0);
-  const adjustedClosing = baseClosing.plus(remainingLoss);
-  const debtReduced = openingBal.minus(adjustedClosing);
-
-  // ── Stock Items (additional info) ──
+    : Decimal.min(finalRecovery.dividedBy(finalStockLoss).times(100), 100);
   const stockItemsTotal = stockItems.reduce((s, x) => s.plus(x.varianceValue.toString()), new Decimal(0));
+
+  const Badge = ({ label }: { label: string }) => (
+    <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900 uppercase">
+      {label}
+    </span>
+  );
 
   return (
     <div>
@@ -117,6 +110,11 @@ export default async function CompanyReportPage({
         <h1 className="text-3xl font-bold text-slate-900">Company Report</h1>
         <p className="text-slate-500 mt-1">
           {branch.name} · {MONTHS[month - 1]} {year}
+          {useOverrides && (
+            <span className="ml-3 inline-block px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+              ⚠ Overrides Applied
+            </span>
+          )}
         </p>
       </div>
 
@@ -127,9 +125,9 @@ export default async function CompanyReportPage({
           This report presents the financial performance, stock position, and staff accountability for <strong>{branch.name}</strong> during <strong>{MONTHS[month - 1]} {year}</strong>.
           {staffNetVariance.isPositive() && ` Sales exceeded system expectations by KES ${fmt(staffNetVariance.toFixed(2))}.`}
           {staffNetVariance.isNegative() && ` Sales fell short of system expectations by KES ${fmt(staffNetVariance.abs().toFixed(2))}.`}
-          {stockLoss.isPositive() && ` A stock loss of KES ${fmt(stockLoss.toFixed(2))} was identified, of which KES ${fmt(recovery.toFixed(2))} was recovered from excess sales.`}
-          {remainingLoss.isPositive() && ` A remaining KES ${fmt(remainingLoss.toFixed(2))} carries into the account standing.`}
-          {!stockLoss.isPositive() && ` No stock loss was recorded for this period.`}
+          {finalStockLoss.isPositive() && ` A stock loss of KES ${fmt(finalStockLoss.toFixed(2))} was identified, of which KES ${fmt(finalRecovery.toFixed(2))} was recovered.`}
+          {finalRemainingLoss.isPositive() && ` KES ${fmt(finalRemainingLoss.toFixed(2))} carries into the account standing.`}
+          {!finalStockLoss.isPositive() && ` No stock loss was recorded.`}
         </p>
       </div>
 
@@ -166,58 +164,51 @@ export default async function CompanyReportPage({
         </table>
       </div>
 
-      {/* Stock Analysis */}
+      {/* Stock Loss Reconciliation — same numbers as Recovery page */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
         <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Stock Analysis</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Stock Loss Reconciliation</h2>
         </div>
         <table className="w-full text-sm">
           <tbody>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Stock Before Stocktake</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">
-                KES {stockPosition ? fmt(stockPosition.openingStockValue.toString()) : '0'}
-              </td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(recovery?.stockBefore ?? '0')}</td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Stock After Stocktake</td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(recovery?.stockAfter ?? '0')}</td>
+            </tr>
+            <tr className="border-t border-slate-100">
+              <td className="px-6 py-3 font-semibold text-slate-700">Stock Loss (Before − After)</td>
+              <td className={'px-6 py-3 text-right font-bold ' + (finalStockLoss.isPositive() ? 'text-rose-700' : 'text-slate-500')}>
+                KES {fmt(finalStockLoss.toFixed(2))}
+                {useOverrides && draft?.overrideStockLoss && <Badge label="overridden" />}
+              </td>
+            </tr>
+            <tr className="border-t border-slate-100">
+              <td className="px-6 py-3 text-slate-600">Excess Sales (Net) — from Sales Reconciliation</td>
+              <td className="px-6 py-3 text-right text-emerald-600 font-medium">
+                KES {fmt(finalExcessSales.toFixed(2))}
+                {useOverrides && draft?.overrideExcessSales && <Badge label="overridden" />}
+              </td>
+            </tr>
+            <tr className="border-t border-slate-100">
+              <td className="px-6 py-3 text-slate-600">Recovery Applied = MIN(Loss, Excess)</td>
               <td className="px-6 py-3 text-right font-medium text-slate-900">
-                KES {stockPosition ? fmt(stockPosition.closingStockValue.toString()) : '0'}
+                KES {fmt(finalRecovery.toFixed(2))}
+                {useOverrides && draft?.overrideRecovery && <Badge label="overridden" />}
               </td>
-            </tr>
-            <tr className="border-t border-slate-100 bg-slate-50">
-              <td className="px-6 py-3 font-semibold text-slate-700">Stock Loss</td>
-              <td className={'px-6 py-3 text-right font-bold ' + (stockLoss.isPositive() ? 'text-rose-700' : 'text-slate-500')}>
-                KES {fmt(stockLoss.toFixed(2))}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {/* Recovery */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
-        <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Stock Loss Recovery</h2>
-        </div>
-        <table className="w-full text-sm">
-          <tbody>
-            <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Excess Sales (Net)</td>
-              <td className="px-6 py-3 text-right text-emerald-600 font-medium">KES {fmt(excessSales.toFixed(2))}</td>
-            </tr>
-            <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Recovery Applied</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(recovery.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Recovery Rate</td>
               <td className="px-6 py-3 text-right font-medium text-slate-900">{recoveryRate.toFixed(2)}%</td>
             </tr>
             <tr className="border-t border-slate-100 bg-slate-50">
-              <td className="px-6 py-3 font-semibold text-slate-700">Remaining Loss</td>
-              <td className={'px-6 py-3 text-right font-bold ' + (remainingLoss.isPositive() ? 'text-rose-700' : 'text-emerald-700')}>
-                KES {fmt(remainingLoss.toFixed(2))}
+              <td className="px-6 py-3 font-semibold text-slate-700">Remaining Loss → Account</td>
+              <td className={'px-6 py-3 text-right font-bold ' + (finalRemainingLoss.isPositive() ? 'text-rose-700' : 'text-emerald-700')}>
+                KES {fmt(finalRemainingLoss.toFixed(2))}
+                {useOverrides && draft?.overrideRemainingLoss && <Badge label="overridden" />}
               </td>
             </tr>
           </tbody>
@@ -233,22 +224,28 @@ export default async function CompanyReportPage({
           <tbody>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Opening Balance</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(openingBal.toFixed(2))}</td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">
+                KES {fmt(finalOpening.toFixed(2))}
+                {useOverrides && draft?.overrideOpeningBal && <Badge label="overridden" />}
+              </td>
             </tr>
             <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Base Closing Balance</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(baseClosing.toFixed(2))}</td>
+              <td className="px-6 py-3 text-slate-600">Closing Balance</td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">
+                KES {fmt(finalClosing.toFixed(2))}
+                {useOverrides && draft?.overrideClosingBal && <Badge label="overridden" />}
+              </td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">+ Remaining Stock Loss</td>
-              <td className="px-6 py-3 text-right text-rose-600 font-medium">+KES {fmt(remainingLoss.toFixed(2))}</td>
+              <td className="px-6 py-3 text-right text-rose-600 font-medium">+KES {fmt(finalRemainingLoss.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Adjusted Closing</td>
               <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(adjustedClosing.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100 bg-slate-50">
-              <td className="px-6 py-3 font-semibold text-slate-700">Debt Reduced</td>
+              <td className="px-6 py-3 font-semibold text-slate-700">Debt Reduced (Opening − Adjusted Closing)</td>
               <td className={'px-6 py-3 text-right font-bold ' + (debtReduced.isPositive() ? 'text-emerald-700' : 'text-rose-700')}>
                 {debtReduced.isNegative() ? '−' : ''}KES {fmt(debtReduced.abs().toFixed(2))}
               </td>
@@ -257,7 +254,7 @@ export default async function CompanyReportPage({
         </table>
       </div>
 
-      {/* Stock Items — additional info */}
+      {/* Stock Items */}
       {stockItems.length > 0 && (
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-slate-200">
@@ -292,7 +289,7 @@ export default async function CompanyReportPage({
         </div>
       )}
 
-      {/* Saved notes / adjustments display */}
+      {/* Notes / adjustments display */}
       {draft && (draft.notes || draft.adjustments) && (
         <div className="bg-indigo-50 rounded-lg border border-indigo-200 p-6 mb-6">
           <h2 className="text-lg font-semibold text-indigo-900 mb-3">Report Notes &amp; Adjustments</h2>
@@ -304,14 +301,14 @@ export default async function CompanyReportPage({
           )}
           {draft.adjustments && (
             <div>
-              <p className="text-xs uppercase tracking-wider text-indigo-600 font-semibold mb-1">Adjustments</p>
+              <p className="text-xs uppercase tracking-wider text-indigo-600 font-semibold mb-1">Adjustment Prompt</p>
               <p className="text-sm text-slate-800 whitespace-pre-wrap font-mono">{draft.adjustments}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Adjustment panel — the new prompt space */}
+      {/* Adjustment panel */}
       <AdjustmentPanel
         branches={branches.map((b) => ({ id: b.id, label: b.name + ' (' + b.code + ')' }))}
         initialBranchId={branch.id}
@@ -319,6 +316,15 @@ export default async function CompanyReportPage({
         initialMonth={month}
         initialNotes={draft?.notes || ''}
         initialAdjustments={draft?.adjustments || ''}
+        initialOverrides={{
+          apply: draft?.applyOverrides ?? false,
+          stockLoss: draft?.overrideStockLoss?.toString() ?? '',
+          excessSales: draft?.overrideExcessSales?.toString() ?? '',
+          recovery: draft?.overrideRecovery?.toString() ?? '',
+          remainingLoss: draft?.overrideRemainingLoss?.toString() ?? '',
+          openingBal: draft?.overrideOpeningBal?.toString() ?? '',
+          closingBal: draft?.overrideClosingBal?.toString() ?? '',
+        }}
       />
     </div>
   );
