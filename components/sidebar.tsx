@@ -48,7 +48,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-slate-900 text-slate-100 min-h-screen flex flex-col shrink-0">
+    <aside className="w-64 bg-slate-900 print:hidden text-slate-100 min-h-screen flex flex-col shrink-0">
       <div className="p-5 border-b border-slate-700">
         <h1 className="text-xl font-bold">Stock Control</h1>
         <p className="text-xs text-slate-400 mt-1">Financial Reporting</p>

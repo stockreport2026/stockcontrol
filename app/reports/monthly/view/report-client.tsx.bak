@@ -43,27 +43,14 @@ export function ReportClient({ report }: { report: any }) {
   const hasSalesData = charts.staffSummary.length > 0;
 
   return (
-    <div className="report-root print:bg-white">
+    <div className="report-root">
       <style jsx global>{`
         @media print {
-          @page { size: A4; margin: 14mm 12mm 18mm 12mm; }
-          html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          body > div, .flex.min-h-screen { display: block !important; min-height: auto !important; }
-          aside, nav, .print\\:hidden, button { display: none !important; }
-          main, .flex-1 { padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; }
-          .report-root > div { border: none !important; box-shadow: none !important; border-radius: 0 !important; }
-          .report-section { page-break-inside: avoid; break-inside: avoid; padding: 12px 0 !important; }
-          section { page-break-inside: avoid; break-inside: avoid; }
-          h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
-          table { border-collapse: collapse !important; width: 100% !important; font-size: 9.5pt; }
-          th { background: #f1f5f9 !important; border: 1px solid #cbd5e1 !important; padding: 6px 8px !important; }
-          td { border: 1px solid #e2e8f0 !important; padding: 6px 8px !important; }
-          thead { display: table-header-group; }
-          tfoot { display: table-footer-group; }
-          .recharts-wrapper, .recharts-responsive-container { page-break-inside: avoid; break-inside: avoid; }
-          a { text-decoration: none !important; color: inherit !important; }
-          .sticky, .fixed { position: static !important; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          @page { size: A4; margin: 12mm 10mm; }
+          body { background: #fff !important; }
+          .print\\:hidden { display: none !important; }
+          .report-root { font-size: 10px; }
+          .report-section { page-break-inside: avoid; }
         }
       `}</style>
 
