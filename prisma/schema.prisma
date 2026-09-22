@@ -300,6 +300,13 @@ model ReportDraft {
   periodMonth Int
   notes       String?  @db.Text
   adjustments String?  @db.Text
+  overrideStockLoss     Decimal? @db.Decimal(18, 2)
+  overrideExcessSales   Decimal? @db.Decimal(18, 2)
+  overrideRecovery      Decimal? @db.Decimal(18, 2)
+  overrideRemainingLoss Decimal? @db.Decimal(18, 2)
+  overrideOpeningBal    Decimal? @db.Decimal(18, 2)
+  overrideClosingBal    Decimal? @db.Decimal(18, 2)
+  applyOverrides        Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
