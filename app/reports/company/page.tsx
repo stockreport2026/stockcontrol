@@ -1,6 +1,5 @@
 import Decimal from 'decimal.js';
 import { prisma } from '@/lib/db/prisma';
-import { computeBranchRecovery } from '@/lib/recovery';
 import { AdjustmentPanel } from './adjustment-panel';
 
 export const dynamic = 'force-dynamic';
@@ -10,14 +9,11 @@ function fmt(n: string | number) {
   return Number(n).toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
 export default async function CompanyReportPage({
   searchParams,
 }: {
-  searchParams: { branchId?: string; year?: string; month?: string };
+  searchParams: { branchId?: string; from?: string; to?: string };
 }) {
-  const now = new Date();
   const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
 
   if (branches.length === 0) {
@@ -31,71 +27,142 @@ export default async function CompanyReportPage({
     );
   }
 
+  // Pick branch and period range
   const branchId = searchParams.branchId || branches[0].id;
-  const year = parseInt(searchParams.year || String(now.getFullYear()));
-  const month = parseInt(searchParams.month || String(now.getMonth() + 1));
   const branch = branches.find((b) => b.id === branchId) || branches[0];
 
-  // ═════ Use the SAME recovery engine as /reconciliation/recovery ═════
-  const recovery = await computeBranchRecovery(branch.id);
-
-  // Staff sales for this branch+period
-  const staffSales = await prisma.staffSales.findMany({
-    where: { branchId: branch.id, periodYear: year, periodMonth: month },
-    include: { staff: true },
+  // Default to the latest available stock position for this branch (if any),
+  // otherwise fall back to current month
+  const latestStock = await prisma.stockPosition.findFirst({
+    where: { branchId: branch.id },
+    orderBy: { periodEndDate: 'desc' },
   });
 
-  // Credit + repayments scoped to the same period as staff sales entries
-  const creditSales = await prisma.creditSale.findMany({ where: { branchId: branch.id } });
-  const repayments = await prisma.repayment.findMany({ where: { branchId: branch.id } });
+  const fromStr = searchParams.from || (latestStock
+    ? new Date(latestStock.periodStartDate).toISOString().slice(0, 10)
+    : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
+  const toStr = searchParams.to || (latestStock
+    ? new Date(latestStock.periodEndDate).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10));
+
+  const fromDate = new Date(fromStr);
+  const toDate = new Date(toStr);
+  toDate.setHours(23, 59, 59, 999);
+
+  // ═════ Fetch everything filtered by the period range ═════
+
+  // Stock position that falls within the range (latest one if multiple)
+  const stockPosition = await prisma.stockPosition.findFirst({
+    where: {
+      branchId: branch.id,
+      periodStartDate: { gte: fromDate },
+      periodEndDate: { lte: toDate },
+    },
+    orderBy: { periodEndDate: 'desc' },
+  }) || latestStock;
+
+  let stockBefore = new Decimal(0);
+  let stockAfter = new Decimal(0);
+  let stockLoss = new Decimal(0);
+  if (stockPosition) {
+    stockBefore = new Decimal(stockPosition.openingStockValue.toString());
+    stockAfter = new Decimal(stockPosition.closingStockValue.toString());
+    stockLoss = Decimal.max(stockBefore.minus(stockAfter), 0);
+  }
+
+  // Staff sales in the period range
+  const staffSales = await prisma.staffSales.findMany({
+    where: {
+      branchId: branch.id,
+      periodStartDate: { gte: fromDate },
+      periodEndDate: { lte: toDate },
+    },
+    include: { staff: true },
+  });
 
   const staffActual = staffSales.reduce((s, x) => s.plus(x.actualSales.toString()), new Decimal(0));
   const staffSystem = staffSales.reduce((s, x) => s.plus(x.systemSales.toString()), new Decimal(0));
 
   let staffCredit = new Decimal(0);
   let staffRepay = new Decimal(0);
+  let excessSales = new Decimal(0);
+  let shortSales = new Decimal(0);
+
   for (const s of staffSales) {
-    staffCredit = staffCredit.plus(
-      creditSales.filter((x) => x.staffId === s.staffId && x.saleDate >= s.periodStartDate && x.saleDate <= s.periodEndDate)
-        .reduce((sum, x) => sum.plus(x.amount.toString()), new Decimal(0))
-    );
-    staffRepay = staffRepay.plus(
-      repayments.filter((x) => x.staffId === s.staffId && x.paymentDate >= s.periodStartDate && x.paymentDate <= s.periodEndDate)
-        .reduce((sum, x) => sum.plus(x.amount.toString()), new Decimal(0))
-    );
+    const credits = await prisma.creditSale.findMany({
+      where: { staffId: s.staffId, saleDate: { gte: s.periodStartDate, lte: s.periodEndDate } },
+    });
+    const repayments = await prisma.repayment.findMany({
+      where: { staffId: s.staffId, paymentDate: { gte: s.periodStartDate, lte: s.periodEndDate } },
+    });
+    const cTotal = credits.reduce((sum, c) => sum.plus(c.amount.toString()), new Decimal(0));
+    const rTotal = repayments.reduce((sum, r) => sum.plus(r.amount.toString()), new Decimal(0));
+
+    staffCredit = staffCredit.plus(cTotal);
+    staffRepay = staffRepay.plus(rTotal);
+
+    const netVar = new Decimal(s.actualSales.toString())
+      .plus(cTotal)
+      .minus(rTotal)
+      .minus(s.systemSales.toString());
+
+    if (netVar.isPositive()) excessSales = excessSales.plus(netVar);
+    else shortSales = shortSales.plus(netVar.abs());
   }
+
   const staffNetVariance = staffActual.plus(staffCredit).minus(staffRepay).minus(staffSystem);
 
+  // Recovery = MIN(excessSales, stockLoss)
+  const recovery = Decimal.min(excessSales, stockLoss);
+  const remainingLoss = Decimal.max(stockLoss.minus(recovery), 0);
+  const recoveryRate = stockLoss.isZero()
+    ? new Decimal(0)
+    : Decimal.min(recovery.dividedBy(stockLoss).times(100), 100);
+
+  // Account balance in the period
   const accountBalance = await prisma.accountBalance.findFirst({
-    where: { branchId: branch.id, periodYear: year, periodMonth: month },
-  });
-  const stockItems = await prisma.stockVarianceItem.findMany({ where: { branchId: branch.id } });
-  const draft = await prisma.reportDraft.findFirst({
-    where: { branchId: branch.id, periodYear: year, periodMonth: month },
+    where: {
+      branchId: branch.id,
+      periodStartDate: { gte: fromDate },
+      periodEndDate: { lte: toDate },
+    },
+    orderBy: { periodEndDate: 'desc' },
   });
 
-  // ═════ Computed values from recovery helper ═════
-  const stockLoss = new Decimal(recovery?.stockLoss ?? '0');
-  const excessSales = new Decimal(recovery?.excessSales ?? '0');
-  const computedRecovery = new Decimal(recovery?.recovery ?? '0');
-  const computedRemainingLoss = new Decimal(recovery?.remainingLoss ?? '0');
   const computedOpening = accountBalance ? new Decimal(accountBalance.openingBalance.toString()) : new Decimal(0);
   const computedClosing = accountBalance ? new Decimal(accountBalance.closingBalance.toString()) : new Decimal(0);
 
-  // ═════ Apply overrides if enabled ═════
+  // Report draft (adjustments)
+  const draft = await prisma.reportDraft.findFirst({
+    where: {
+      branchId: branch.id,
+      periodYear: toDate.getFullYear(),
+      periodMonth: toDate.getMonth() + 1,
+    },
+  });
+
+  // Apply overrides
   const useOverrides = draft?.applyOverrides === true;
   const finalStockLoss = useOverrides && draft?.overrideStockLoss ? new Decimal(draft.overrideStockLoss.toString()) : stockLoss;
   const finalExcessSales = useOverrides && draft?.overrideExcessSales ? new Decimal(draft.overrideExcessSales.toString()) : excessSales;
-  const finalRecovery = useOverrides && draft?.overrideRecovery ? new Decimal(draft.overrideRecovery.toString()) : computedRecovery;
-  const finalRemainingLoss = useOverrides && draft?.overrideRemainingLoss ? new Decimal(draft.overrideRemainingLoss.toString()) : computedRemainingLoss;
+  const finalRecovery = useOverrides && draft?.overrideRecovery ? new Decimal(draft.overrideRecovery.toString()) : recovery;
+  const finalRemainingLoss = useOverrides && draft?.overrideRemainingLoss ? new Decimal(draft.overrideRemainingLoss.toString()) : remainingLoss;
   const finalOpening = useOverrides && draft?.overrideOpeningBal ? new Decimal(draft.overrideOpeningBal.toString()) : computedOpening;
   const finalClosing = useOverrides && draft?.overrideClosingBal ? new Decimal(draft.overrideClosingBal.toString()) : computedClosing;
 
   const adjustedClosing = finalClosing.plus(finalRemainingLoss);
   const debtReduced = finalOpening.minus(adjustedClosing);
-  const recoveryRate = finalStockLoss.isZero()
+  const finalRecoveryRate = finalStockLoss.isZero()
     ? new Decimal(0)
     : Decimal.min(finalRecovery.dividedBy(finalStockLoss).times(100), 100);
+
+  const stockItems = await prisma.stockVarianceItem.findMany({
+    where: {
+      branchId: branch.id,
+      periodStartDate: { gte: fromDate },
+      periodEndDate: { lte: toDate },
+    },
+  });
   const stockItemsTotal = stockItems.reduce((s, x) => s.plus(x.varianceValue.toString()), new Decimal(0));
 
   const Badge = ({ label }: { label: string }) => (
@@ -109,7 +176,7 @@ export default async function CompanyReportPage({
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Company Report</h1>
         <p className="text-slate-500 mt-1">
-          {branch.name} · {MONTHS[month - 1]} {year}
+          {branch.name} ({branch.code}) · Period: <strong>{new Date(fromStr).toLocaleDateString('en-GB')}</strong> → <strong>{new Date(toStr).toLocaleDateString('en-GB')}</strong>
           {useOverrides && (
             <span className="ml-3 inline-block px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
               ⚠ Overrides Applied
@@ -118,16 +185,45 @@ export default async function CompanyReportPage({
         </p>
       </div>
 
+      {/* Period selector */}
+      <form action="/reports/company" method="get" className="bg-white rounded-lg border border-slate-200 shadow-sm p-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Branch</label>
+            <select name="branchId" defaultValue={branch.id}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Period From</label>
+            <input type="date" name="from" defaultValue={fromStr}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Period To</label>
+            <input type="date" name="to" defaultValue={toStr}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white" />
+          </div>
+          <div>
+            <button type="submit"
+              className="w-full bg-slate-900 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-slate-700">
+              Generate Report
+            </button>
+          </div>
+        </div>
+      </form>
+
       {/* Executive Summary */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 mb-6">
         <h2 className="text-lg font-semibold text-slate-900 mb-3">Executive Summary</h2>
         <p className="text-sm text-slate-700 leading-relaxed">
-          This report presents the financial performance, stock position, and staff accountability for <strong>{branch.name}</strong> during <strong>{MONTHS[month - 1]} {year}</strong>.
-          {staffNetVariance.isPositive() && ` Sales exceeded system expectations by KES ${fmt(staffNetVariance.toFixed(2))}.`}
-          {staffNetVariance.isNegative() && ` Sales fell short of system expectations by KES ${fmt(staffNetVariance.abs().toFixed(2))}.`}
-          {finalStockLoss.isPositive() && ` A stock loss of KES ${fmt(finalStockLoss.toFixed(2))} was identified, of which KES ${fmt(finalRecovery.toFixed(2))} was recovered.`}
+          This report presents the financial performance for <strong>{branch.name}</strong> from <strong>{new Date(fromStr).toLocaleDateString('en-GB')}</strong> to <strong>{new Date(toStr).toLocaleDateString('en-GB')}</strong>.
+          {staffNetVariance.isPositive() && ` Net sales exceeded system expectations by KES ${fmt(staffNetVariance.toFixed(2))}.`}
+          {staffNetVariance.isNegative() && ` Net sales fell short of system expectations by KES ${fmt(staffNetVariance.abs().toFixed(2))}.`}
+          {finalStockLoss.isPositive() && ` A stock loss of KES ${fmt(finalStockLoss.toFixed(2))} was identified, of which KES ${fmt(finalRecovery.toFixed(2))} was recovered from excess sales.`}
           {finalRemainingLoss.isPositive() && ` KES ${fmt(finalRemainingLoss.toFixed(2))} carries into the account standing.`}
-          {!finalStockLoss.isPositive() && ` No stock loss was recorded.`}
+          {!finalStockLoss.isPositive() && ` No stock loss was recorded for this period.`}
         </p>
       </div>
 
@@ -164,51 +260,66 @@ export default async function CompanyReportPage({
         </table>
       </div>
 
-      {/* Stock Loss Reconciliation — same numbers as Recovery page */}
+      {/* Stock Loss Reconciliation */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
         <div className="px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Stock Loss Reconciliation</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Stock Analysis</h2>
         </div>
         <table className="w-full text-sm">
           <tbody>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Stock Before Stocktake</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(recovery?.stockBefore ?? '0')}</td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(stockBefore.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Stock After Stocktake</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(recovery?.stockAfter ?? '0')}</td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(stockAfter.toFixed(2))}</td>
             </tr>
-            <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 font-semibold text-slate-700">Stock Loss (Before − After)</td>
-              <td className={'px-6 py-3 text-right font-bold ' + (finalStockLoss.isPositive() ? 'text-rose-700' : 'text-slate-500')}>
-                KES {fmt(finalStockLoss.toFixed(2))}
+            <tr className="border-t border-slate-100 bg-slate-50">
+              <td className="px-6 py-3 font-semibold text-slate-700">
+                Stock Loss (Before − After)
                 {useOverrides && draft?.overrideStockLoss && <Badge label="overridden" />}
               </td>
+              <td className={'px-6 py-3 text-right font-bold ' + (finalStockLoss.isPositive() ? 'text-rose-700' : 'text-slate-500')}>
+                KES {fmt(finalStockLoss.toFixed(2))}
+              </td>
             </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Recovery */}
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900">Stock Loss Recovery</h2>
+        </div>
+        <table className="w-full text-sm">
+          <tbody>
             <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Excess Sales (Net) — from Sales Reconciliation</td>
-              <td className="px-6 py-3 text-right text-emerald-600 font-medium">
-                KES {fmt(finalExcessSales.toFixed(2))}
+              <td className="px-6 py-3 text-slate-600">
+                Excess Sales (Net)
                 {useOverrides && draft?.overrideExcessSales && <Badge label="overridden" />}
               </td>
+              <td className="px-6 py-3 text-right text-emerald-600 font-medium">KES {fmt(finalExcessSales.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Recovery Applied = MIN(Loss, Excess)</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">
-                KES {fmt(finalRecovery.toFixed(2))}
+              <td className="px-6 py-3 text-slate-600">
+                Recovery Applied = MIN(Loss, Excess)
                 {useOverrides && draft?.overrideRecovery && <Badge label="overridden" />}
               </td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(finalRecovery.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">Recovery Rate</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">{recoveryRate.toFixed(2)}%</td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">{finalRecoveryRate.toFixed(2)}%</td>
             </tr>
             <tr className="border-t border-slate-100 bg-slate-50">
-              <td className="px-6 py-3 font-semibold text-slate-700">Remaining Loss → Account</td>
+              <td className="px-6 py-3 font-semibold text-slate-700">
+                Remaining Loss → Account
+                {useOverrides && draft?.overrideRemainingLoss && <Badge label="overridden" />}
+              </td>
               <td className={'px-6 py-3 text-right font-bold ' + (finalRemainingLoss.isPositive() ? 'text-rose-700' : 'text-emerald-700')}>
                 KES {fmt(finalRemainingLoss.toFixed(2))}
-                {useOverrides && draft?.overrideRemainingLoss && <Badge label="overridden" />}
               </td>
             </tr>
           </tbody>
@@ -223,18 +334,18 @@ export default async function CompanyReportPage({
         <table className="w-full text-sm">
           <tbody>
             <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Opening Balance</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">
-                KES {fmt(finalOpening.toFixed(2))}
+              <td className="px-6 py-3 text-slate-600">
+                Opening Balance
                 {useOverrides && draft?.overrideOpeningBal && <Badge label="overridden" />}
               </td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(finalOpening.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
-              <td className="px-6 py-3 text-slate-600">Closing Balance</td>
-              <td className="px-6 py-3 text-right font-medium text-slate-900">
-                KES {fmt(finalClosing.toFixed(2))}
+              <td className="px-6 py-3 text-slate-600">
+                Closing Balance
                 {useOverrides && draft?.overrideClosingBal && <Badge label="overridden" />}
               </td>
+              <td className="px-6 py-3 text-right font-medium text-slate-900">KES {fmt(finalClosing.toFixed(2))}</td>
             </tr>
             <tr className="border-t border-slate-100">
               <td className="px-6 py-3 text-slate-600">+ Remaining Stock Loss</td>
@@ -312,8 +423,8 @@ export default async function CompanyReportPage({
       <AdjustmentPanel
         branches={branches.map((b) => ({ id: b.id, label: b.name + ' (' + b.code + ')' }))}
         initialBranchId={branch.id}
-        initialYear={year}
-        initialMonth={month}
+        initialYear={toDate.getFullYear()}
+        initialMonth={toDate.getMonth() + 1}
         initialNotes={draft?.notes || ''}
         initialAdjustments={draft?.adjustments || ''}
         initialOverrides={{
